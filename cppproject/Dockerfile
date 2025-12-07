@@ -41,8 +41,9 @@ COPY src/ ./src/
 COPY CMakeLists.txt ./
 COPY README.md ./
 
-# Make installation script executable
-RUN chmod +x scripts/install_htm_core.sh
+# Make installation scripts executable and fix line endings (Windows compatibility)
+RUN find scripts/ -name "*.sh" -type f -exec chmod +x {} \; && \
+    find scripts/ -name "*.sh" -type f -exec sed -i 's/\r$//' {} \;
 
 # Install htm.core library (this takes ~10-15 minutes)
 # This builds the C++ library we need
