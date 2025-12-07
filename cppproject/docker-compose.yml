@@ -1,0 +1,17 @@
+version: "3.8"
+
+services:
+  htm_swat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      # Mount data directory (read-only)
+      - ./data:/workspace/data:ro
+      # Mount results directory (write)
+      - ./results:/workspace/results
+    working_dir: /workspace
+    # Override command if needed
+    # command: ./build/htm_swat --input data/swat_data.csv
+    environment:
+      - HTM_CORE_ROOT=/workspace/htm.core/build/Release

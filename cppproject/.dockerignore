@@ -1,0 +1,19 @@
+# Ignore build artifacts and dependencies
+build/
+htm.core/
+*.o
+*.a
+*.so
+*.dylib
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Ignore data files (they should be mounted as volume)
+data/*.csv
+data/*.parquet
+data/*.json
+
