@@ -12,6 +12,7 @@ I've set up the basic project structure and got HTM.core library working. Right 
 - HTM.core library is installed and linked
 - Build system (CMake) works
 - Test program runs and verifies the library works
+- Docker build works (recommended way to run)
 
 **What's next:**
 
@@ -20,52 +21,59 @@ I've set up the basic project structure and got HTM.core library working. Right 
 - Build the pyramid structure
 - Process data and calculate anomaly scores
 
-## Quick Start
+## Quick Start (Docker - Recommended)
 
-### 1. Install Dependencies
+The easiest way to build and run is using Docker. It handles all dependencies automatically.
 
-**Linux (Ubuntu/Debian):**
+### Prerequisites
 
-```bash
-sudo apt-get update
-sudo apt-get install -y build-essential cmake git python3 python3-pip python3-venv python3-dev libboost-all-dev
-```
+You only need Docker installed:
 
-**macOS:**
+- **Mac**: Install [Docker Desktop](https://www.docker.com/products/docker-desktop)
+- **Linux**: `sudo apt-get install docker.io` (or similar)
+- **Windows**: Install [Docker Desktop](https://www.docker.com/products/docker-desktop)
 
-```bash
-brew install cmake git python3 boost
-```
-
-**Windows:** Use WSL2 and follow Linux instructions, or install Visual Studio with C++ tools.
-
-### 2. Install HTM.core Library
-
-This takes about 10-15 minutes. The script will clone and build the library for you.
+### Build and Run
 
 ```bash
-chmod +x scripts/install_htm_core.sh
-./scripts/install_htm_core.sh
+cd cppproject
+docker-compose up --build
 ```
 
-It installs to `../htm.core/build/Release`. If it's already there, it will skip the installation.
+**First time:** This takes ~15-20 minutes (builds HTM.core library inside Docker)  
+**After that:** Runs in seconds (uses cached image)
 
-### 3. Build the Project
+### What Happens
+
+1. Docker builds the image (installs dependencies, builds HTM.core, builds your project)
+2. Creates a container and runs the program
+3. Shows test results
+4. Container exits when done
+
+### Run Again
+
+Just run the same command:
 
 ```bash
-mkdir build
-cd build
-cmake ..
-make
+docker-compose up
 ```
 
-### 4. Run
+It will use the cached image, so it's fast.
 
-```bash
-./htm_swat
+### Expected Output
+
+You should see:
+
 ```
+========================================
+HTM SWAT C++ Implementation
+========================================
 
-You should see tests pass. If all 5 tests pass, everything is working.
+Testing HTM.core library...
+...
+Tests passed: 5/5
+✅ HTM.core library is working correctly!
+```
 
 ## Project Structure
 
@@ -98,7 +106,7 @@ cppproject/
 │       └── config--model_default.yaml  # HTM parameters (SP, TM, encoders)
 │
 ├── scripts/                # Helper scripts
-│   ├── install_htm_core.sh # Installs HTM.core library (one-time setup)
+│   ├── install_htm_core.sh # Installs HTM.core library (used by Docker)
 │   └── test_docker.sh      # Tests Docker build
 │
 ├── data/                   # Put your dataset CSV files here
@@ -116,29 +124,66 @@ cppproject/
 - **include/**: Header files that declare classes and functions. These are like blueprints.
 - **src/**: Implementation files. Right now most are empty placeholders except `main.cpp` which has tests.
 - **config/**: YAML files with settings. Same as the Python version uses.
-- **scripts/**: Helper scripts. The install script is the important one - it sets up HTM.core.
+- **scripts/**: Helper scripts. The install script is used by Docker automatically.
 - **data/**: Where you put your CSV dataset files.
 - **build/**: Generated when you compile. Contains the executable.
 - **CMakeLists.txt**: Tells the build system how to compile everything and where to find libraries.
 
+## Local Build (Optional)
+
+If you prefer to build locally instead of using Docker:
+
+### Prerequisites
+
+- C++17 compiler (GCC 8+, Clang 8+, or MSVC 2019+)
+- CMake 3.24+ (required for HTM.core)
+- Python 3.7+ (for installing htm.core)
+- Git
+- Boost libraries
+
+### Install HTM.core
+
+```bash
+chmod +x scripts/install_htm_core.sh
+./scripts/install_htm_core.sh
+```
+
+This takes ~10-15 minutes.
+
+### Build
+
+```bash
+mkdir build
+cd build
+cmake ..
+make
+```
+
+### Run
+
+```bash
+./htm_swat
+```
+
 ## Troubleshooting
 
-**HTM.core not found:**
+**Docker build fails:**
+
+- Make sure Docker Desktop is running
+- Check you have enough disk space (~5GB)
+- Try: `docker-compose build --no-cache` to rebuild from scratch
+
+**HTM.core not found (local build):**
 
 ```bash
 export HTM_CORE_ROOT=$(pwd)/../htm.core/build/Release
 cd build && cmake .. && make
 ```
 
-**Boost not found:**
+**CMake version too old:**
 
-- Linux: `sudo apt-get install libboost-all-dev`
-- macOS: `brew install boost`
-
-**CMake errors:**
-
-- Make sure CMake 3.15+ is installed: `cmake --version`
-- Make sure you ran the HTM.core installation script first
+- Docker: Should work automatically (uses CMake 3.28+)
+- Local: Install CMake 3.24+ from https://cmake.org/download/
 
 ## What the Code Does Now
 
@@ -166,13 +211,6 @@ Uses the same config files as the Python version:
 - `config/data/config--swat.yaml` - Feature definitions
 - `config/model/config--model_default.yaml` - HTM parameters
 
-## Docker (Optional)
+## Docker Details
 
-If you want to use Docker instead:
-
-```bash
-docker build -t htm_swat .
-docker run --rm -v $(pwd)/data:/workspace/data htm_swat
-```
-
-See `DOCKER_README.md` for more details.
+See `DOCKER_README.md` for more information about the Docker setup.
