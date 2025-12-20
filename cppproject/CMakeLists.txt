@@ -114,6 +114,14 @@ else()
     endif()
 endif()
 
+# yaml-cpp (for YAML config parsing)
+find_package(yaml-cpp REQUIRED)
+if(yaml-cpp_FOUND)
+    message(STATUS "✓ Found yaml-cpp: ${yaml-cpp_VERSION}")
+else()
+    message(FATAL_ERROR "yaml-cpp not found. Install with: sudo apt-get install libyaml-cpp-dev")
+endif()
+
 # ============================================================================
 # Source Files
 # ============================================================================
@@ -169,6 +177,9 @@ endif()
 
 # Link Threads
 target_link_libraries(htm_swat PRIVATE Threads::Threads)
+
+# Link yaml-cpp
+target_link_libraries(htm_swat PRIVATE yaml-cpp)
 
 # ============================================================================
 # Build Configuration Summary

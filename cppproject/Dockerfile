@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y \
     python3-venv \
     python3-dev \
     libboost-all-dev \
+    libyaml-cpp-dev \
     pkg-config \
     wget \
     ca-certificates \

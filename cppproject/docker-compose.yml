@@ -10,8 +10,10 @@ services:
       - ./data:/workspace/data:ro
       # Mount results directory (write)
       - ./results:/workspace/results
+      # Mount config directory so the YAML file is accessible
+      - ./config:/workspace/config:ro
     working_dir: /workspace
     # Override command if needed
     # command: ./build/htm_swat --input data/swat_data.csv
     environment:
-      - HTM_CORE_ROOT=/workspace/htm.core/build/Release
+      - HTM_CORE_ROOT=/htm.core/build/Release # Fixed: matches Dockerfile installation path
