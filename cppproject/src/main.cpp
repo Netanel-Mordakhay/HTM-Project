@@ -2,12 +2,9 @@
 #include <vector>
 #include <map>
 #include <string>
-#include <fstream>
-#include <sstream>
+#include <memory>
 #include "config.hpp"
-
-// YAML parser
-#include <yaml-cpp/yaml.h>
+#include "data_streamer.hpp"
 
 // HTM core includes
 #include <htm/types/Sdr.hpp>
@@ -15,136 +12,8 @@
 
 using namespace htm;
 using namespace std;
+using namespace htm_swat;
 
-// Parse data config YAML (features definitions) using yaml-cpp
-map<string, map<string, string>> parseConfigYAML(const string& config_path) {
-    map<string, map<string, string>> config;
-    
-    try {
-        YAML::Node yaml_config = YAML::LoadFile(config_path);
-        
-        if (!yaml_config["features"]) {
-            cerr << "ERROR: 'features' key not found in config file" << endl;
-            return config;
-        }
-        
-        YAML::Node features = yaml_config["features"];
-        
-        for (auto it = features.begin(); it != features.end(); ++it) {
-            string feature_name = it->first.as<string>();
-            YAML::Node feature_config = it->second;
-            
-            map<string, string> feature_map;
-            
-            // Extract all key-value pairs from the feature config
-            for (auto feat_it = feature_config.begin(); feat_it != feature_config.end(); ++feat_it) {
-                string key = feat_it->first.as<string>();
-                
-                // Handle different value types
-                if (feat_it->second.IsScalar()) {
-                    feature_map[key] = feat_it->second.as<string>();
-                } else if (feat_it->second.IsSequence()) {
-                    // For arrays like timeOfDay: [21, 9.49], convert to string
-                    string value_str = "";
-                    for (size_t i = 0; i < feat_it->second.size(); i++) {
-                        if (i > 0) value_str += ",";
-                        value_str += feat_it->second[i].as<string>();
-                    }
-                    feature_map[key] = value_str;
-                }
-            }
-            
-            config[feature_name] = feature_map;
-        }
-        
-        cout << "  ✓ Parsed " << config.size() << " features from YAML" << endl;
-        
-    } catch (const YAML::Exception& e) {
-        cerr << "ERROR: Failed to parse YAML file: " << config_path << endl;
-        cerr << "  YAML error: " << e.what() << endl;
-    } catch (const exception& e) {
-        cerr << "ERROR: Exception while loading config: " << e.what() << endl;
-    }
-    
-    return config;
-}
-
-// Parse model config YAML (encoder/SP/TM parameters) using yaml-cpp
-// Returns a map structure that can be accessed like: config["encoders"]["n"]
-map<string, map<string, string>> parseModelConfigYAML(const string& config_path) {
-    map<string, map<string, string>> config;
-    
-    try {
-        YAML::Node yaml_config = YAML::LoadFile(config_path);
-        
-        // Parse general section
-        if (yaml_config["general"]) {
-            map<string, string> general_map;
-            YAML::Node general = yaml_config["general"];
-            for (auto it = general.begin(); it != general.end(); ++it) {
-                string key = it->first.as<string>();
-                if (it->second.IsScalar()) {
-                    general_map[key] = it->second.as<string>();
-                }
-            }
-            config["general"] = general_map;
-        }
-        
-        // Parse encoders section
-        if (yaml_config["encoders"]) {
-            map<string, string> encoders_map;
-            YAML::Node encoders = yaml_config["encoders"];
-            for (auto it = encoders.begin(); it != encoders.end(); ++it) {
-                string key = it->first.as<string>();
-                if (it->second.IsScalar()) {
-                    encoders_map[key] = it->second.as<string>();
-                }
-            }
-            config["encoders"] = encoders_map;
-        }
-        
-        // Parse models section (SP and TM configs)
-        if (yaml_config["models"]) {
-            YAML::Node models = yaml_config["models"];
-            
-            // SP config
-            if (models["sp"]) {
-                map<string, string> sp_map;
-                YAML::Node sp = models["sp"];
-                for (auto it = sp.begin(); it != sp.end(); ++it) {
-                    string key = it->first.as<string>();
-                    if (it->second.IsScalar()) {
-                        sp_map[key] = it->second.as<string>();
-                    }
-                }
-                config["sp"] = sp_map;
-            }
-            
-            // TM config
-            if (models["tm"]) {
-                map<string, string> tm_map;
-                YAML::Node tm = models["tm"];
-                for (auto it = tm.begin(); it != tm.end(); ++it) {
-                    string key = it->first.as<string>();
-                    if (it->second.IsScalar()) {
-                        tm_map[key] = it->second.as<string>();
-                    }
-                }
-                config["tm"] = tm_map;
-            }
-        }
-        
-        cout << "  ✓ Parsed model config from YAML" << endl;
-        
-    } catch (const YAML::Exception& e) {
-        cerr << "ERROR: Failed to parse model YAML file: " << config_path << endl;
-        cerr << "  YAML error: " << e.what() << endl;
-    } catch (const exception& e) {
-        cerr << "ERROR: Exception while loading model config: " << e.what() << endl;
-    }
-    
-    return config;
-}
 
 int main(int argc, char* argv[]) {
     std::cout << "========================================" << std::endl;
@@ -157,8 +26,9 @@ int main(int argc, char* argv[]) {
         std::cout << "[Step 1] Loading configs from YAML..." << std::endl;
         
         // Load data config (feature definitions)
+        // Equivalent to Python: data_cfg = load_config(config_path_data)
         string data_config_path = "config/data/config_swat.yaml";
-        auto features_config = parseConfigYAML(data_config_path);
+        auto features_config = loadDataConfig(data_config_path);
         
         if (features_config.empty()) {
             std::cerr << "ERROR: Failed to load data config or config is empty" << std::endl;
@@ -169,8 +39,9 @@ int main(int argc, char* argv[]) {
         std::cout << "  ✓ Loaded data config with " << features_config.size() << " features" << std::endl;
         
         // Load model config (encoder/SP/TM parameters)
+        // Equivalent to Python: run_cfg = load_config(config_path_model)
         string model_config_path = "config/model/config_model_default.yaml";
-        auto model_config = parseModelConfigYAML(model_config_path);
+        auto model_config = loadModelConfig(model_config_path);
         
         // Extract encoder parameters from model config
         UInt encoder_size = 2304;  // Default
@@ -248,8 +119,14 @@ int main(int argc, char* argv[]) {
         
         std::cout << "\n  Total encoders created: " << encoders.size() << std::endl;
         
-        // 3. Test encoding with sample data
-        std::cout << "\n[Step 3] Testing encoding..." << std::endl;
+        // 3. Create DataStreamer for encoding
+        // Equivalent to Python: DataStreamer(data, features_cfg=..., encoders_cfg=...)
+        std::cout << "\n[Step 3] Creating DataStreamer..." << std::endl;
+        DataStreamer streamer(encoders);
+        std::cout << "  ✓ DataStreamer created with " << streamer.size() << " encoders" << std::endl;
+        
+        // 4. Test encoding with sample data
+        std::cout << "\n[Step 4] Testing encoding..." << std::endl;
         
         // Test with a few sample features
         map<string, double> test_data = {
@@ -267,9 +144,8 @@ int main(int argc, char* argv[]) {
         
         std::cout << "\n  Testing float encodings:" << std::endl;
         for (const auto& [feature_name, value] : test_data) {
-            if (encoders.count(feature_name)) {
-                SDR output({encoder_size});
-                encoders[feature_name]->encode(value, output);
+            if (streamer.hasEncoder(feature_name)) {
+                SDR output = streamer.encodeFeature(feature_name, value);
                 
                 auto sparse = output.getSparse();
                 std::cout << "    " << feature_name << " = " << value 
@@ -288,9 +164,8 @@ int main(int argc, char* argv[]) {
         
         std::cout << "\n  Testing categorical encodings:" << std::endl;
         for (const auto& [feature_name, value] : test_cat_data) {
-            if (encoders.count(feature_name)) {
-                SDR output({encoder_size});
-                encoders[feature_name]->encode(static_cast<Real64>(value), output);
+            if (streamer.hasEncoder(feature_name)) {
+                SDR output = streamer.encodeFeature(feature_name, value);
                 
                 auto sparse = output.getSparse();
                 std::cout << "    " << feature_name << " = " << value 
@@ -307,14 +182,16 @@ int main(int argc, char* argv[]) {
             }
         }
         
-        // 4. Test encoding consistency (same input should produce same output)
-        std::cout << "\n[Step 4] Testing encoding consistency..." << std::endl;
-        if (encoders.count("fit101")) {
-            SDR output1({encoder_size});
-            SDR output2({encoder_size});
-            
-            encoders["fit101"]->encode(2.5, output1);
-            encoders["fit101"]->encode(2.5, output2);
+        // Test encoding a full row
+        std::cout << "\n  Testing full row encoding:" << std::endl;
+        auto encoded_row = streamer.encodeRow(test_data);
+        std::cout << "    Encoded " << encoded_row.size() << " features from row" << std::endl;
+        
+        // 5. Test encoding consistency (same input should produce same output)
+        std::cout << "\n[Step 5] Testing encoding consistency..." << std::endl;
+        if (streamer.hasEncoder("fit101")) {
+            SDR output1 = streamer.encodeFeature("fit101", 2.5);
+            SDR output2 = streamer.encodeFeature("fit101", 2.5);
             
             auto sparse1 = output1.getSparse();
             auto sparse2 = output2.getSparse();
@@ -336,14 +213,11 @@ int main(int argc, char* argv[]) {
             }
         }
         
-        // 5. Test encoding similarity (similar inputs should have overlapping encodings)
-        std::cout << "\n[Step 5] Testing encoding similarity..." << std::endl;
-        if (encoders.count("fit101")) {
-            SDR output1({encoder_size});
-            SDR output2({encoder_size});
-            
-            encoders["fit101"]->encode(2.5, output1);
-            encoders["fit101"]->encode(2.6, output2);  // Very similar value
+        // 6. Test encoding similarity (similar inputs should have overlapping encodings)
+        std::cout << "\n[Step 6] Testing encoding similarity..." << std::endl;
+        if (streamer.hasEncoder("fit101")) {
+            SDR output1 = streamer.encodeFeature("fit101", 2.5);
+            SDR output2 = streamer.encodeFeature("fit101", 2.6);  // Very similar value
             
             auto sparse1 = output1.getSparse();
             auto sparse2 = output2.getSparse();

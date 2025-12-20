@@ -130,6 +130,7 @@ endif()
 set(SOURCES
     src/main.cpp
     src/config.cpp
+    src/data_streamer.cpp
     src/htm_module.cpp
     src/htm_pyramid.cpp
     src/encoder.cpp
@@ -142,6 +143,7 @@ set(HEADERS
     include/htm_pyramid.hpp
     include/encoder.hpp
     include/config.hpp
+    include/data_streamer.hpp
     include/utils.hpp
 )
 

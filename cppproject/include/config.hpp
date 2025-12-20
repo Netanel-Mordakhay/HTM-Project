@@ -1,14 +1,14 @@
 #pragma once
 
 #include <string>
+#include <map>
 
 // Configuration loading
-// Eventually will load YAML files like the Python version
+// Loads YAML files like the Python version (htm_source/utils/fs.py)
 
 namespace htm_swat {
 
-// Config struct with default values
-// TODO: Add YAML parsing later
+// Config struct with default values (legacy, kept for compatibility)
 struct Config {
     // General settings
     int seed = 69;
@@ -23,15 +23,23 @@ struct Config {
     int column_dimensions = 2048;
     double potential_radius = 1.0;
     double local_area_density = 0.02;
-    // More SP settings will go here
     
     // Temporal Memory settings
     int cells_per_column = 4;
     int activation_threshold = 13;
-    // More TM settings will go here
 };
 
-// TODO: Load config from YAML files
+// Load data config YAML (features definitions)
+// Equivalent to Python: load_config(config_path_data) -> data_cfg['features']
+// Returns: map<feature_name, map<key, value>>
+std::map<std::string, std::map<std::string, std::string>> loadDataConfig(const std::string& config_path);
+
+// Load model config YAML (encoder/SP/TM parameters)
+// Equivalent to Python: load_config(config_path_model) -> run_cfg
+// Returns: map<section, map<key, value>> (e.g., config["encoders"]["n"])
+std::map<std::string, std::map<std::string, std::string>> loadModelConfig(const std::string& config_path);
+
+// Legacy function (kept for compatibility)
 Config loadConfig(const std::string& config_path);
 
 } // namespace htm_swat
