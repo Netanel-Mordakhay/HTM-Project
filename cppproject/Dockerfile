@@ -34,20 +34,15 @@ RUN wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/nul
 # Set working directory
 WORKDIR /workspace
 
-# Copy project files (excluding build artifacts)
-COPY scripts/ ./scripts/
-COPY config/ ./config/
-COPY include/ ./include/
-COPY src/ ./src/
-COPY CMakeLists.txt ./
-COPY README.md ./
+# Copy ONLY the installation script first (needed for htm.core)
+# This is a small file that rarely changes, so it won't invalidate cache often
+COPY scripts/install_htm_core.sh ./scripts/
+RUN chmod +x scripts/install_htm_core.sh && \
+    sed -i 's/\r$//' scripts/install_htm_core.sh
 
-# Make installation scripts executable and fix line endings (Windows compatibility)
-RUN find scripts/ -name "*.sh" -type f -exec chmod +x {} \; && \
-    find scripts/ -name "*.sh" -type f -exec sed -i 's/\r$//' {} \;
-
-# Install htm.core library (this takes ~10-15 minutes)
-# This builds the C++ library we need
+# Install htm.core library FIRST (before copying source files)
+# This takes ~10-15 minutes, but will be CACHED when source files change
+# This way, source code changes won't invalidate this expensive layer
 RUN ./scripts/install_htm_core.sh ../htm.core || \
     (echo "HTM.core installation failed. Make sure the script exists and is correct." && exit 1)
 
@@ -56,7 +51,16 @@ RUN ./scripts/install_htm_core.sh ../htm.core || \
 ENV HTM_CORE_ROOT=/htm.core/build/Release
 ENV CMAKE_PREFIX_PATH=/htm.core/build/Release:${CMAKE_PREFIX_PATH}
 
-# Build the project
+# NOW copy project files (this layer will be rebuilt when source changes)
+# But the htm.core layer above will be cached and reused!
+COPY config/ ./config/
+COPY include/ ./include/
+COPY src/ ./src/
+COPY CMakeLists.txt ./
+COPY README.md ./
+
+# Build the project (this will rebuild when source/CMakeLists changes)
+# But htm.core is already installed and cached from above
 RUN mkdir -p build && \
     cd build && \
     cmake .. && \
