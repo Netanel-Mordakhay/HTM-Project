@@ -3,8 +3,11 @@
 #include <map>
 #include <string>
 #include <memory>
+#include <set>
 #include "config.hpp"
 #include "data_streamer.hpp"
+#include "htm_pyramid.hpp"
+#include "utils.hpp"
 
 // HTM core includes
 #include <htm/types/Sdr.hpp>
@@ -14,241 +17,263 @@ using namespace htm;
 using namespace std;
 using namespace htm_swat;
 
-
 int main(int argc, char* argv[]) {
     std::cout << "========================================" << std::endl;
-    std::cout << "HTM SWAT Encoder Test" << std::endl;
+    std::cout << "HTM SWAT Implementation" << std::endl;
     std::cout << "========================================" << std::endl;
     std::cout << std::endl;
     
     try {
-        // 1. Load configs from YAML (both data and model configs)
+        // 1. Load configs from YAML
         std::cout << "[Step 1] Loading configs from YAML..." << std::endl;
         
-        // Load data config (feature definitions)
-        // Equivalent to Python: data_cfg = load_config(config_path_data)
         string data_config_path = "config/data/config_swat.yaml";
         auto features_config = loadDataConfig(data_config_path);
         
         if (features_config.empty()) {
-            std::cerr << "ERROR: Failed to load data config or config is empty" << std::endl;
-            std::cerr << "  Tried to load: " << data_config_path << std::endl;
+            std::cerr << "ERROR: Failed to load data config" << std::endl;
             return 1;
         }
         
         std::cout << "  ✓ Loaded data config with " << features_config.size() << " features" << std::endl;
         
-        // Load model config (encoder/SP/TM parameters)
-        // Equivalent to Python: run_cfg = load_config(config_path_model)
         string model_config_path = "config/model/config_model_default.yaml";
         auto model_config = loadModelConfig(model_config_path);
         
-        // Extract encoder parameters from model config
-        UInt encoder_size = 2304;  // Default
-        Real encoder_sparsity = 0.035;  // Default
-        UInt seed = 42;  // Default
+        if (model_config.empty()) {
+            std::cerr << "ERROR: Failed to load model config" << std::endl;
+            return 1;
+        }
         
-        if (model_config.count("encoders")) {
-            const auto& encoders_cfg = model_config.at("encoders");
-            if (encoders_cfg.count("n")) {
-                encoder_size = static_cast<UInt>(stoi(encoders_cfg.at("n")));
+        std::cout << "  ✓ Loaded model config" << std::endl;
+        
+        // Extract general config
+        UInt seed = 69;
+        int learn_period = 5000;
+        int min_data = 446000;
+        int max_data = 946000;
+        int res_data = 5;
+        string feature_merge_mode = "u";
+        string htm_merge_mode = "u";
+        std::vector<int> max_pool = {1, 1, 1, 2};
+        
+        if (model_config.count("general")) {
+            const auto& general = model_config.at("general");
+            if (general.count("seed")) {
+                seed = static_cast<UInt>(std::stoi(general.at("seed")));
             }
-            if (encoders_cfg.count("w")) {
-                encoder_sparsity = stod(encoders_cfg.at("w"));
+            if (general.count("learn_period")) {
+                learn_period = std::stoi(general.at("learn_period"));
+            }
+            if (general.count("data_min")) {
+                min_data = std::stoi(general.at("data_min"));
+            }
+            if (general.count("data_max")) {
+                max_data = std::stoi(general.at("data_max"));
+            }
+            if (general.count("data_res")) {
+                res_data = std::stoi(general.at("data_res"));
+            }
+            if (general.count("feature_merge_mode")) {
+                feature_merge_mode = general.at("feature_merge_mode");
+            }
+            if (general.count("htm_merge_mode")) {
+                htm_merge_mode = general.at("htm_merge_mode");
             }
         }
         
-        if (model_config.count("general") && model_config.at("general").count("seed")) {
-            seed = static_cast<UInt>(stoi(model_config.at("general").at("seed")));
-        }
+        // 2. Load data
+        std::cout << "\n[Step 2] Loading data..." << std::endl;
+        // Try parquet first, fall back to CSV if Arrow is not available
+        string data_path = "data/swat_dataset.parquet";
         
-        const UInt active_bits = static_cast<UInt>(encoder_size * encoder_sparsity);  // w * n
-        
-        std::cout << "  Encoder parameters: n=" << encoder_size 
-                  << ", w=" << encoder_sparsity 
-                  << ", activeBits=" << active_bits << std::endl;
-        
-        // 2. Create encoders for each feature
-        std::cout << "\n[Step 2] Creating RDSE encoders..." << std::endl;
-        map<string, shared_ptr<RandomDistributedScalarEncoder>> encoders;
-        
-        for (const auto& [feature_name, feature_config] : features_config) {
-            string feature_type = feature_config.count("type") ? feature_config.at("type") : "float";
-            
-            RDSE_Parameters params;
-            params.size = encoder_size;
-            params.activeBits = active_bits;
-            params.seed = seed;
-            
-            if (feature_type == "float") {
-                // For float features, use resolution from config
-                if (feature_config.count("resolution")) {
-                    string res_str = feature_config.at("resolution");
-                    params.resolution = stod(res_str);
-                } else {
-                    params.resolution = 0.1;  // Default resolution
-                }
-                std::cout << "  ✓ Created RDSE encoder for " << feature_name 
-                          << " (float, resolution=" << params.resolution << ")" << std::endl;
-            } 
-            else if (feature_type == "cat") {
-                // For categorical features
-                params.category = true;
-                std::cout << "  ✓ Created RDSE encoder for " << feature_name 
-                          << " (categorical)" << std::endl;
-            }
-            else if (feature_type == "timestamp") {
-                // For timestamp, we'll use a float encoder for now
-                // TODO: Implement DateEncoder later
-                params.resolution = 1.0;  // 1 second resolution
-                std::cout << "  ⚠ Created RDSE encoder for " << feature_name 
-                          << " (timestamp - using float encoder, DateEncoder TODO)" << std::endl;
-            }
-            else {
-                std::cout << "  ⚠ Skipping " << feature_name << " (unknown type: " << feature_type << ")" << std::endl;
-                continue;
-            }
-            
-            try {
-                encoders[feature_name] = make_shared<RandomDistributedScalarEncoder>(params);
-            } catch (const exception& e) {
-                std::cerr << "  ✗ Failed to create encoder for " << feature_name 
-                          << ": " << e.what() << std::endl;
-            }
-        }
-        
-        std::cout << "\n  Total encoders created: " << encoders.size() << std::endl;
-        
-        // 3. Create DataStreamer for encoding
-        // Equivalent to Python: DataStreamer(data, features_cfg=..., encoders_cfg=...)
-        std::cout << "\n[Step 3] Creating DataStreamer..." << std::endl;
-        DataStreamer streamer(encoders);
-        std::cout << "  ✓ DataStreamer created with " << streamer.size() << " encoders" << std::endl;
-        
-        // 4. Test encoding with sample data
-        std::cout << "\n[Step 4] Testing encoding..." << std::endl;
-        
-        // Test with a few sample features
-        map<string, double> test_data = {
-            {"fit101", 2.5},
-            {"lit101", 500.0},
-            {"ait201", 25.3},
-            {"ait202", 0.15},
-        };
-        
-        // Test categorical encoding (use integer values)
-        map<string, UInt> test_cat_data = {
-            {"mv101", 0},  // Assuming 0 = OFF, 1 = ON
-            {"p101", 1},
-        };
-        
-        std::cout << "\n  Testing float encodings:" << std::endl;
-        for (const auto& [feature_name, value] : test_data) {
-            if (streamer.hasEncoder(feature_name)) {
-                SDR output = streamer.encodeFeature(feature_name, value);
-                
-                auto sparse = output.getSparse();
-                std::cout << "    " << feature_name << " = " << value 
-                          << " -> " << sparse.size() << " active bits" << std::endl;
-                std::cout << "      Active bits: [";
-                for (size_t i = 0; i < std::min(sparse.size(), size_t(10)); i++) {
-                    std::cout << sparse[i];
-                    if (i < std::min(sparse.size(), size_t(10)) - 1) std::cout << ", ";
-                }
-                if (sparse.size() > 10) std::cout << "...";
-                std::cout << "]" << std::endl;
+        std::vector<std::map<std::string, double>> full_data;
+        try {
+            // Try to load parquet file first
+            if (data_path.find(".parquet") != std::string::npos) {
+                std::cout << "  Loading parquet file: " << data_path << std::endl;
+                full_data = loadParquet(data_path);
+                std::cout << "  ✓ Loaded " << full_data.size() << " rows from parquet file" << std::endl;
+            } else if (data_path.find(".csv") != std::string::npos) {
+                std::cout << "  Loading CSV file: " << data_path << std::endl;
+                full_data = loadCSV(data_path);
+                std::cout << "  ✓ Loaded " << full_data.size() << " rows from CSV file" << std::endl;
             } else {
-                std::cout << "    ⚠ " << feature_name << " encoder not found" << std::endl;
-            }
-        }
-        
-        std::cout << "\n  Testing categorical encodings:" << std::endl;
-        for (const auto& [feature_name, value] : test_cat_data) {
-            if (streamer.hasEncoder(feature_name)) {
-                SDR output = streamer.encodeFeature(feature_name, value);
-                
-                auto sparse = output.getSparse();
-                std::cout << "    " << feature_name << " = " << value 
-                          << " -> " << sparse.size() << " active bits" << std::endl;
-                std::cout << "      Active bits: [";
-                for (size_t i = 0; i < std::min(sparse.size(), size_t(10)); i++) {
-                    std::cout << sparse[i];
-                    if (i < std::min(sparse.size(), size_t(10)) - 1) std::cout << ", ";
+                // Try both extensions
+                std::string parquet_path = data_path;
+                if (parquet_path.find(".") == std::string::npos) {
+                    parquet_path += ".parquet";
                 }
-                if (sparse.size() > 10) std::cout << "...";
-                std::cout << "]" << std::endl;
-            } else {
-                std::cout << "    ⚠ " << feature_name << " encoder not found" << std::endl;
-            }
-        }
-        
-        // Test encoding a full row
-        std::cout << "\n  Testing full row encoding:" << std::endl;
-        auto encoded_row = streamer.encodeRow(test_data);
-        std::cout << "    Encoded " << encoded_row.size() << " features from row" << std::endl;
-        
-        // 5. Test encoding consistency (same input should produce same output)
-        std::cout << "\n[Step 5] Testing encoding consistency..." << std::endl;
-        if (streamer.hasEncoder("fit101")) {
-            SDR output1 = streamer.encodeFeature("fit101", 2.5);
-            SDR output2 = streamer.encodeFeature("fit101", 2.5);
-            
-            auto sparse1 = output1.getSparse();
-            auto sparse2 = output2.getSparse();
-            
-            bool identical = (sparse1.size() == sparse2.size());
-            if (identical) {
-                for (size_t i = 0; i < sparse1.size(); i++) {
-                    if (sparse1[i] != sparse2[i]) {
-                        identical = false;
-                        break;
+                
+                try {
+                    full_data = loadParquet(parquet_path);
+                    std::cout << "  ✓ Loaded " << full_data.size() << " rows from parquet file" << std::endl;
+                } catch (const std::exception& e1) {
+                    // Try CSV
+                    std::string csv_path = data_path;
+                    if (csv_path.find(".") == std::string::npos) {
+                        csv_path += ".csv";
+                    }
+                    try {
+                        full_data = loadCSV(csv_path);
+                        std::cout << "  ✓ Loaded " << full_data.size() << " rows from CSV file" << std::endl;
+                    } catch (const std::exception& e2) {
+                        throw std::runtime_error(
+                            "Failed to load data file. Tried:\n"
+                            "  Parquet: " + std::string(e1.what()) + "\n"
+                            "  CSV: " + std::string(e2.what())
+                        );
                     }
                 }
             }
             
-            if (identical) {
-                std::cout << "  ✓ Encoding is consistent (same input -> same output)" << std::endl;
-            } else {
-                std::cout << "  ✗ Encoding is NOT consistent" << std::endl;
+            if (full_data.empty()) {
+                throw std::runtime_error("Loaded data is empty");
+            }
+            
+        } catch (const std::exception& e) {
+            std::cerr << "ERROR loading data: " << e.what() << std::endl;
+            std::cerr << "  Make sure the data file exists at: " << data_path << std::endl;
+            std::cerr << "  Or set data_path to point to your data file" << std::endl;
+            return 1;
+        }
+        
+        // Filter columns to only include features used in feature plan (like Python)
+        std::set<std::string> required_features;
+        for (const auto& [group_name, feature_list] : features) {
+            for (const auto& feature : feature_list) {
+                required_features.insert(feature);
             }
         }
         
-        // 6. Test encoding similarity (similar inputs should have overlapping encodings)
-        std::cout << "\n[Step 6] Testing encoding similarity..." << std::endl;
-        if (streamer.hasEncoder("fit101")) {
-            SDR output1 = streamer.encodeFeature("fit101", 2.5);
-            SDR output2 = streamer.encodeFeature("fit101", 2.6);  // Very similar value
-            
-            auto sparse1 = output1.getSparse();
-            auto sparse2 = output2.getSparse();
-            
-            // Count overlapping bits
-            size_t overlap = 0;
-            for (UInt bit : sparse1) {
-                for (UInt bit2 : sparse2) {
-                    if (bit == bit2) {
-                        overlap++;
-                        break;
+        std::cout << "  Filtering to " << required_features.size() << " required features..." << std::endl;
+        
+        // Filter and slice data according to config
+        std::vector<std::map<std::string, double>> data;
+        for (int i = min_data; i < std::min(static_cast<int>(full_data.size()), max_data); i += res_data) {
+            if (i < static_cast<int>(full_data.size())) {
+                std::map<std::string, double> filtered_row;
+                const auto& original_row = full_data[i];
+                
+                // Only include columns that are in required_features
+                for (const auto& feature : required_features) {
+                    if (original_row.find(feature) != original_row.end()) {
+                        filtered_row[feature] = original_row.at(feature);
                     }
                 }
-            }
-            
-            double overlap_ratio = static_cast<double>(overlap) / sparse1.size();
-            std::cout << "  fit101: 2.5 vs 2.6 -> " << overlap << "/" << sparse1.size() 
-                      << " bits overlap (" << (overlap_ratio * 100) << "%)" << std::endl;
-            
-            if (overlap_ratio > 0.5) {
-                std::cout << "  ✓ Similar inputs produce overlapping encodings" << std::endl;
-            } else {
-                std::cout << "  ⚠ Low overlap - check resolution settings" << std::endl;
+                
+                if (!filtered_row.empty()) {
+                    data.push_back(filtered_row);
+                }
             }
         }
+        
+        std::cout << "  ✓ Processed " << data.size() << " rows (sliced from " << full_data.size() 
+                  << ", filtered to " << required_features.size() << " features)" << std::endl;
+        
+        // 3. Define feature plan and connections (matching Python)
+        std::cout << "\n[Step 3] Setting up feature plan and connections..." << std::endl;
+        
+        std::map<std::string, std::vector<std::string>> features = {
+            {"L0_1", {"mv101", "fit101", "lit101"}},
+            {"L0_2", {"lit101", "fit201", "p101"}},
+            {"L0_3", {"ait201", "p201"}},
+            {"L0_4", {"ait202", "p203", "ait402"}},
+            {"L0_5", {"ait203", "p205", "ait402"}},
+            {"L0_6", {"lit301", "fit201", "p101"}},
+            {"L0_7", {"dpit301", "p302", "fit301"}},
+            {"L0_8", {"lit301", "fit301", "p302"}},
+            {"L0_9", {"lit401", "fit301", "p302"}},
+            {"L0_10", {"fit401", "p402", "uv401"}},
+            {"L0_11", {"ait401", "ait402", "p403"}},
+            {"L0_12", {"fit501", "pit501", "p501"}},
+            {"L0_13", {"fit502", "pit502", "ait504"}},
+            {"L0_14", {"ait501", "ait502", "ait503"}},
+            {"L0_15", {"fit503", "pit503", "fit504"}},
+            {"L0_16", {"fit601", "p602", "dpit301"}}
+        };
+        
+        std::map<std::string, std::vector<std::string>> connections = {
+            {"L1_1", {"L0_1", "L0_2"}},
+            {"L1_2", {"L0_3", "L0_4", "L0_5"}},
+            {"L1_3", {"L0_6", "L0_7", "L0_8"}},
+            {"L1_4", {"L0_9", "L0_10", "L0_11"}},
+            {"L1_5", {"L0_12", "L0_13", "L0_14"}},
+            {"L1_6", {"L0_15", "L0_16"}},
+            {"L2_1", {"L1_1", "L1_2"}},
+            {"L2_2", {"L1_3", "L1_4"}},
+            {"L2_3", {"L1_5", "L1_6"}},
+            {"L3_1", {"L2_1", "L2_2", "L2_3"}}
+        };
+        
+        // Build layer dictionary
+        auto layer_dict = getLayerDict(features, connections);
+        
+        std::cout << "  ✓ Created " << features.size() << " feature groups" << std::endl;
+        std::cout << "  ✓ Created " << connections.size() << " connections" << std::endl;
+        std::cout << "  ✓ Built " << layer_dict.size() << " layers" << std::endl;
+        
+        // 4. Create and build HTMPyramid
+        std::cout << "\n[Step 4] Creating HTMPyramid..." << std::endl;
+        
+        HTMPyramid pyramid(
+            data,
+            features_config,
+            model_config,
+            features,
+            connections,
+            layer_dict,
+            seed,
+            feature_merge_mode,
+            htm_merge_mode,
+            true,  // anomaly_score
+            max_pool,
+            learn_period
+        );
+        
+        std::cout << "  ✓ HTMPyramid created" << std::endl;
+        
+        // 5. Build the pyramid
+        std::cout << "\n[Step 5] Building pyramid structure..." << std::endl;
+        pyramid.build();
+        std::cout << "  ✓ Pyramid built" << std::endl;
+        
+        // 6. Run the model
+        std::cout << "\n[Step 6] Running model..." << std::endl;
+        pyramid.run();
+        std::cout << "  ✓ Model run complete" << std::endl;
+        
+        // 7. Get results
+        std::cout << "\n[Step 7] Collecting results..." << std::endl;
+        auto scores = pyramid.getScores();
+        std::cout << "  ✓ Collected " << scores.size() << " anomaly scores" << std::endl;
+        
+        // Print some statistics
+        if (!scores.empty()) {
+            float sum = 0.0f;
+            float min_score = scores[0];
+            float max_score = scores[0];
+            for (float s : scores) {
+                sum += s;
+                min_score = std::min(min_score, s);
+                max_score = std::max(max_score, s);
+            }
+            float avg_score = sum / scores.size();
+            
+            std::cout << "\n  Score statistics:" << std::endl;
+            std::cout << "    Average: " << avg_score << std::endl;
+            std::cout << "    Min: " << min_score << std::endl;
+            std::cout << "    Max: " << max_score << std::endl;
+        }
+        
+        // Save results
+        std::cout << "\n[Step 8] Saving results..." << std::endl;
+        saveResults("results/anomaly_scores.csv", scores);
+        std::cout << "  ✓ Results saved to results/anomaly_scores.csv" << std::endl;
         
         std::cout << "\n========================================" << std::endl;
-        std::cout << "Encoder Test: PASSED" << std::endl;
+        std::cout << "HTM SWAT: COMPLETE" << std::endl;
         std::cout << "========================================" << std::endl;
-        std::cout << "\n✅ RDSE encoders are working correctly!" << std::endl;
-        std::cout << "✅ Ready to integrate with Spatial Pooler" << std::endl;
         
     } catch (const std::exception& e) {
         std::cerr << "\n❌ ERROR: " << e.what() << std::endl;
@@ -257,4 +282,3 @@ int main(int argc, char* argv[]) {
     
     return 0;
 }
-

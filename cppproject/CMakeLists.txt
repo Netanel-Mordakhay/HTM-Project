@@ -122,6 +122,28 @@ else()
     message(FATAL_ERROR "yaml-cpp not found. Install with: sudo apt-get install libyaml-cpp-dev")
 endif()
 
+# Apache Arrow (for Parquet file support) - OPTIONAL
+option(USE_ARROW "Enable Apache Arrow for Parquet support" ON)
+if(USE_ARROW)
+    find_package(Arrow QUIET)
+    find_package(Parquet QUIET)
+    
+    if(Arrow_FOUND AND Parquet_FOUND)
+        message(STATUS "✓ Found Apache Arrow: ${Arrow_VERSION}")
+        message(STATUS "✓ Found Apache Parquet: ${Parquet_VERSION}")
+        add_definitions(-DUSE_ARROW)
+    else()
+        message(STATUS 
+            "Apache Arrow/Parquet not found. Parquet file loading will be disabled.\n"
+            "  The code will automatically fall back to CSV loading.\n"
+            "  To enable parquet support, install Arrow from source or use a PPA."
+        )
+        set(USE_ARROW OFF)
+    endif()
+else()
+    message(STATUS "Arrow support disabled (USE_ARROW=OFF)")
+endif()
+
 # ============================================================================
 # Source Files
 # ============================================================================
@@ -182,6 +204,15 @@ target_link_libraries(htm_swat PRIVATE Threads::Threads)
 
 # Link yaml-cpp
 target_link_libraries(htm_swat PRIVATE yaml-cpp)
+
+# Link Apache Arrow/Parquet (if enabled)
+if(USE_ARROW AND Arrow_FOUND AND Parquet_FOUND)
+    target_link_libraries(htm_swat PRIVATE 
+        Arrow::arrow_shared
+        Parquet::parquet_shared
+    )
+    message(STATUS "Linking Apache Arrow/Parquet libraries")
+endif()
 
 # ============================================================================
 # Build Configuration Summary

@@ -1,4 +1,5 @@
 #include "data_streamer.hpp"
+#include "utils.hpp"
 #include <stdexcept>
 
 namespace htm_swat {
@@ -6,7 +7,24 @@ namespace htm_swat {
 using namespace htm;
 
 DataStreamer::DataStreamer(const std::map<std::string, std::shared_ptr<RandomDistributedScalarEncoder>>& encoders)
-    : encoders_(encoders) {
+    : encoders_(encoders),
+      has_merge_plan_(false),
+      feature_merge_mode_("u") {
+    // Get encoder size from first encoder (all should have same size)
+    if (!encoders_.empty()) {
+        encoder_size_ = encoders_.begin()->second->parameters.size;
+    } else {
+        encoder_size_ = 0;
+    }
+}
+
+DataStreamer::DataStreamer(const std::map<std::string, std::shared_ptr<RandomDistributedScalarEncoder>>& encoders,
+                           const std::map<std::string, std::vector<std::string>>& merge_plan,
+                           const std::string& feature_merge_mode)
+    : encoders_(encoders),
+      merge_plan_(merge_plan),
+      feature_merge_mode_(feature_merge_mode),
+      has_merge_plan_(true) {
     // Get encoder size from first encoder (all should have same size)
     if (!encoders_.empty()) {
         encoder_size_ = encoders_.begin()->second->parameters.size;
@@ -49,6 +67,59 @@ bool DataStreamer::hasEncoder(const std::string& feature_name) const {
 
 size_t DataStreamer::size() const {
     return encoders_.size();
+}
+
+std::map<std::string, SDR> DataStreamer::encodeRowMerged(const std::map<std::string, double>& row_data) const {
+    if (!has_merge_plan_) {
+        // Fall back to individual encoding
+        return encodeRow(row_data);
+    }
+    
+    // First, encode each feature individually
+    std::map<std::string, SDR> temp_encoding;
+    for (const auto& [feature_name, value] : row_data) {
+        if (hasEncoder(feature_name)) {
+            temp_encoding[feature_name] = encodeFeature(feature_name, value);
+        }
+    }
+    
+    // Then merge according to merge_plan
+    std::map<std::string, SDR> final_encoding;
+    
+    for (const auto& [group_name, feature_list] : merge_plan_) {
+        std::vector<SDR> sdrs_to_merge;
+        
+        for (const auto& feature_name : feature_list) {
+            if (temp_encoding.find(feature_name) != temp_encoding.end()) {
+                sdrs_to_merge.push_back(temp_encoding[feature_name]);
+            }
+        }
+        
+        if (!sdrs_to_merge.empty()) {
+            if (sdrs_to_merge.size() == 1) {
+                final_encoding[group_name] = sdrs_to_merge[0];
+            } else {
+                final_encoding[group_name] = mergeSDRs(sdrs_to_merge, feature_merge_mode_);
+            }
+        }
+    }
+    
+    return final_encoding;
+}
+
+std::vector<UInt> DataStreamer::getEncodingDims(const std::string& group_name) const {
+    if (!has_merge_plan_ || merge_plan_.find(group_name) == merge_plan_.end()) {
+        return {encoder_size_};
+    }
+    
+    const auto& features = merge_plan_.at(group_name);
+    if (feature_merge_mode_ == "u" || feature_merge_mode_ == "union") {
+        // Union: same size as individual encoder
+        return {encoder_size_};
+    } else {
+        // Concatenation: size = encoder_size * num_features
+        return {static_cast<UInt>(encoder_size_ * features.size())};
+    }
 }
 
 } // namespace htm_swat

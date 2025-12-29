@@ -23,6 +23,14 @@ RUN apt-get update && apt-get install -y \
     lsb-release \
     && rm -rf /var/lib/apt/lists/*
 
+# Try to install Apache Arrow/Parquet (optional - for parquet file support)
+# Note: Arrow packages may not be available in default Ubuntu repos
+# If not available, the code will fall back to CSV loading
+RUN apt-get update && \
+    (apt-get install -y libarrow-dev libparquet-dev 2>/dev/null || \
+     echo "Arrow packages not available - will use CSV fallback") && \
+    rm -rf /var/lib/apt/lists/*
+
 # Install CMake 3.28+ from Kitware APT repository (handles architecture automatically)
 RUN wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | gpg --dearmor - | tee /etc/apt/trusted.gpg.d/kitware.gpg >/dev/null && \
     echo "deb https://apt.kitware.com/ubuntu/ $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/kitware.list >/dev/null && \
@@ -71,4 +79,3 @@ VOLUME ["/workspace/data"]
 
 # Default command - run the executable
 CMD ["./build/htm_swat"]
-
