@@ -190,26 +190,23 @@ std::vector<std::map<std::string, double>> loadParquet(const std::string& filena
     
 #ifdef USE_ARROW
     try {
-        // Initialize Arrow
-        arrow::Status status;
-        
         // Open parquet file
-        std::shared_ptr<arrow::io::ReadableFile> infile;
-        status = arrow::io::ReadableFile::Open(filename, arrow::default_memory_pool(), &infile);
-        if (!status.ok()) {
-            throw std::runtime_error("Failed to open parquet file: " + status.ToString());
+        auto infile_result = arrow::io::ReadableFile::Open(filename, arrow::default_memory_pool());
+        if (!infile_result.ok()) {
+            throw std::runtime_error("Failed to open parquet file: " + infile_result.status().ToString());
         }
+        std::shared_ptr<arrow::io::ReadableFile> infile = *infile_result;
         
         // Create parquet reader
-        std::unique_ptr<parquet::arrow::FileReader> reader;
-        status = parquet::arrow::OpenFile(infile, arrow::default_memory_pool(), &reader);
-        if (!status.ok()) {
-            throw std::runtime_error("Failed to create parquet reader: " + status.ToString());
+        auto reader_result = parquet::arrow::OpenFile(infile, arrow::default_memory_pool());
+        if (!reader_result.ok()) {
+            throw std::runtime_error("Failed to create parquet reader: " + reader_result.status().ToString());
         }
+        std::unique_ptr<parquet::arrow::FileReader> reader = std::move(*reader_result);
         
         // Read entire file as a table
         std::shared_ptr<arrow::Table> table;
-        status = reader->ReadTable(&table);
+        arrow::Status status = reader->ReadTable(&table);
         if (!status.ok()) {
             throw std::runtime_error("Failed to read parquet table: " + status.ToString());
         }

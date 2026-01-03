@@ -57,7 +57,8 @@ RUN ./scripts/install_htm_core.sh ../htm.core || \
 # Set environment variables for htm.core
 # Note: install script installs to ../htm.core (which becomes /htm.core from /workspace)
 ENV HTM_CORE_ROOT=/htm.core/build/Release
-ENV CMAKE_PREFIX_PATH=/htm.core/build/Release:${CMAKE_PREFIX_PATH}
+# Set a known prefix path; upstream toolchains can prepend/extend if needed
+ENV CMAKE_PREFIX_PATH=/htm.core/build/Release
 
 # NOW copy project files (this layer will be rebuilt when source changes)
 # But the htm.core layer above will be cached and reused!

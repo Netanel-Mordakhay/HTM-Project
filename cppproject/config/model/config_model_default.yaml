@@ -9,8 +9,8 @@ general:
   grace_window: 5
   seed: 69
   learn_period: 5000  # From what index to start the metrics
-  data_min: 446_000  # For the sdr min and max are erased ---->
-  data_max: 946_000
+  data_min: 446000  # For the sdr min and max are erased ---->
+  data_max: 946000
   data_res: 5
 
 

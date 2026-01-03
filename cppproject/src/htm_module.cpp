@@ -164,6 +164,13 @@ HTMModule::HTMModule(const std::vector<UInt>& input_dims,
     // Note: Check HTM core documentation for exact constructor signature
     // This is a placeholder - adjust based on actual HTM core C++ API
     try {
+        std::cout << "DEBUG TM params:" << std::endl;
+        std::cout << "  columnDims: " << column_dims_[0] << std::endl;
+        std::cout << "  cellsPerColumn: " << cells_per_column << std::endl;
+        std::cout << "  activationThreshold: " << activation_threshold << std::endl;
+        std::cout << "  minThreshold: " << min_threshold << std::endl;
+        std::cout << "  maxNewSynapseCount: " << max_new_synapse_count << std::endl;
+        
         tm_ = std::make_unique<TemporalMemory>(
             column_dims_,
             cells_per_column,
@@ -267,8 +274,8 @@ void HTMModule::initSP() {
     }
     
     // Create SP - using HTM core C++ API (positional parameters)
-    // Note: HTM core C++ API uses positional parameters, not named
-    // Adjust constructor call based on actual HTM core C++ API
+    // HTM.core requires exactly one of localAreaDensity or numActiveColumnsPerInhArea to be >0
+    // We pass 0 for localAreaDensity in constructor, then set it via setter
     try {
         sp_ = std::make_unique<SpatialPooler>(
             input_dims_,
@@ -276,7 +283,7 @@ void HTMModule::initSP() {
             potential_radius,
             potential_pct,
             global_inhibition,
-            local_area_density,
+            0.0,  // localAreaDensity (set to 0, will be configured after construction)
             stimulus_threshold,
             syn_perm_active_inc,
             syn_perm_inactive_dec,
@@ -289,6 +296,10 @@ void HTMModule::initSP() {
             0,     // spVerbosity
             wrap_around
         );
+        
+        // Set localAreaDensity via setter after construction
+        sp_->setLocalAreaDensity(local_area_density);
+        
     } catch (const std::exception& e) {
         std::cerr << "Error creating SpatialPooler: " << e.what() << std::endl;
         throw;

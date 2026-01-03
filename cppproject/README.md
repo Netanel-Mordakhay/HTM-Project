@@ -159,12 +159,21 @@ cmake ..
 make
 ```
 
+
 ### Run
+**Note: Must run the htm_swat docker file from the main "cppproject" directory, so it can resolve the relatie paths for the configs** 
 
+Create Results Directory(make sure you are in the cppproject DIR):  
+
+`mkdir -p results`  
+
+Run the image  
 ```bash
-./htm_swat
+./build/htm_swat
 ```
+everytime you modify the code, rebuild the image:
 
+`cd /home/abed/final-project/HTM-Project/cppproject && cmake --build build --target htm_swat`
 ## Troubleshooting
 
 **Docker build fails:**
@@ -177,9 +186,12 @@ make
 
 ```bash
 export HTM_CORE_ROOT=$(pwd)/../htm.core/build/Release
-cd build && cmake .. && make
+sudo apt-get install -y libyaml-cpp-dev
+cd build
+cmake -Dyaml-cpp_DIR=/usr/lib/x86_64-linux-gnu/cmake/yaml-cpp ..
+make -j$(nproc)
 ```
-
+Should get the output `[100%] Built target htm_swat`
 **CMake version too old:**
 
 - Docker: Should work automatically (uses CMake 3.28+)

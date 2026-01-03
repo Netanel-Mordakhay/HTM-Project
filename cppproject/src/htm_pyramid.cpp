@@ -216,11 +216,17 @@ std::vector<UInt> HTMPyramid::getInputDims(const std::string& node_name, int lay
             }
             return {total_size};
         } else {
-            // Union: use first predecessor's output dims
+            // Union: use first predecessor's output dims (flattened to 1D for SP compatibility)
             if (modules_.find(predecessors[0]) == modules_.end()) {
                 throw std::runtime_error("Predecessor module not found: " + predecessors[0]);
             }
-            return modules_.at(predecessors[0])->getOutputDims();
+            auto output_dims = modules_.at(predecessors[0])->getOutputDims();
+            // Flatten to 1D: multiply all dimensions
+            UInt size = 1;
+            for (UInt dim : output_dims) {
+                size *= dim;
+            }
+            return {size};
         }
     }
 }

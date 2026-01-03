@@ -138,42 +138,7 @@ int main(int argc, char* argv[]) {
             return 1;
         }
         
-        // Filter columns to only include features used in feature plan (like Python)
-        std::set<std::string> required_features;
-        for (const auto& [group_name, feature_list] : features) {
-            for (const auto& feature : feature_list) {
-                required_features.insert(feature);
-            }
-        }
-        
-        std::cout << "  Filtering to " << required_features.size() << " required features..." << std::endl;
-        
-        // Filter and slice data according to config
-        std::vector<std::map<std::string, double>> data;
-        for (int i = min_data; i < std::min(static_cast<int>(full_data.size()), max_data); i += res_data) {
-            if (i < static_cast<int>(full_data.size())) {
-                std::map<std::string, double> filtered_row;
-                const auto& original_row = full_data[i];
-                
-                // Only include columns that are in required_features
-                for (const auto& feature : required_features) {
-                    if (original_row.find(feature) != original_row.end()) {
-                        filtered_row[feature] = original_row.at(feature);
-                    }
-                }
-                
-                if (!filtered_row.empty()) {
-                    data.push_back(filtered_row);
-                }
-            }
-        }
-        
-        std::cout << "  ✓ Processed " << data.size() << " rows (sliced from " << full_data.size() 
-                  << ", filtered to " << required_features.size() << " features)" << std::endl;
-        
         // 3. Define feature plan and connections (matching Python)
-        std::cout << "\n[Step 3] Setting up feature plan and connections..." << std::endl;
-        
         std::map<std::string, std::vector<std::string>> features = {
             {"L0_1", {"mv101", "fit101", "lit101"}},
             {"L0_2", {"lit101", "fit201", "p101"}},
@@ -205,6 +170,44 @@ int main(int argc, char* argv[]) {
             {"L2_3", {"L1_5", "L1_6"}},
             {"L3_1", {"L2_1", "L2_2", "L2_3"}}
         };
+
+        // Filter columns to only include features used in feature plan (like Python)
+        std::set<std::string> required_features;
+        for (const auto& [group_name, feature_list] : features) {
+            for (const auto& feature : feature_list) {
+                required_features.insert(feature);
+            }
+        }
+        
+        std::cout << "  Filtering to " << required_features.size() << " required features..." << std::endl;
+        std::cout << "  Data range: min_data=" << min_data << ", max_data=" << max_data 
+                  << ", res_data=" << res_data << std::endl;
+        std::cout << "  Expected rows: " << ((max_data - min_data) / res_data) << std::endl;
+        
+        // Filter and slice data according to config
+        std::vector<std::map<std::string, double>> data;
+        for (int i = min_data; i < std::min(static_cast<int>(full_data.size()), max_data); i += res_data) {
+            if (i < static_cast<int>(full_data.size())) {
+                std::map<std::string, double> filtered_row;
+                const auto& original_row = full_data[i];
+                
+                // Only include columns that are in required_features
+                for (const auto& feature : required_features) {
+                    if (original_row.find(feature) != original_row.end()) {
+                        filtered_row[feature] = original_row.at(feature);
+                    }
+                }
+                
+                if (!filtered_row.empty()) {
+                    data.push_back(filtered_row);
+                }
+            }
+        }
+        
+        std::cout << "  ✓ Processed " << data.size() << " rows (sliced from " << full_data.size() 
+                  << ", filtered to " << required_features.size() << " features)" << std::endl;
+        
+        std::cout << "\n[Step 3] Setting up feature plan and connections..." << std::endl;
         
         // Build layer dictionary
         auto layer_dict = getLayerDict(features, connections);

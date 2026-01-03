@@ -105,6 +105,14 @@ std::map<std::string, std::map<std::string, std::string>> loadModelConfig(const 
                     std::string key = it->first.as<std::string>();
                     if (it->second.IsScalar()) {
                         sp_map[key] = it->second.as<std::string>();
+                    } else if (it->second.IsSequence()) {
+                        // Convert array to comma-separated string
+                        std::string value_str;
+                        for (size_t i = 0; i < it->second.size(); ++i) {
+                            if (i > 0) value_str += ",";
+                            value_str += it->second[i].as<std::string>();
+                        }
+                        sp_map[key] = value_str;
                     }
                 }
                 config["sp"] = sp_map;
@@ -118,6 +126,14 @@ std::map<std::string, std::map<std::string, std::string>> loadModelConfig(const 
                     std::string key = it->first.as<std::string>();
                     if (it->second.IsScalar()) {
                         tm_map[key] = it->second.as<std::string>();
+                    } else if (it->second.IsSequence()) {
+                        // Convert array to comma-separated string: [1,2,3] -> "1,2,3"
+                        std::string value_str;
+                        for (size_t i = 0; i < it->second.size(); ++i) {
+                            if (i > 0) value_str += ",";
+                            value_str += it->second[i].as<std::string>();
+                        }
+                        tm_map[key] = value_str;
                     }
                 }
                 config["tm"] = tm_map;
