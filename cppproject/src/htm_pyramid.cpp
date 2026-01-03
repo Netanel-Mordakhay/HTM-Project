@@ -241,25 +241,80 @@ void HTMPyramid::run() {
         
         // Encode row using DataStreamer (get merged SDRs for L0)
         auto encoded_row = data_streamer_->encodeRowMerged(row);
+
+        if (row_idx == 0) {
+            std::cout << "  Debug encoded inputs (row 0):" << std::endl;
+            for (const auto& [name, sdr] : encoded_row) {
+                std::cout << "    " << name << " size=" << sdr.size << " dims=";
+                const auto& dims = sdr.dimensions;
+                for (size_t i = 0; i < dims.size(); i++) {
+                    std::cout << dims[i];
+                    if (i + 1 < dims.size()) std::cout << "x";
+                }
+                std::cout << std::endl;
+            }
+        }
         
-        // Process through layers
-        std::map<std::string, SDR> layer_results = encoded_row;
-        
+        // layer_outputs holds outputs of previous layer; start with encoder outputs
+        std::map<std::string, SDR> layer_outputs = encoded_row;
+
+        // Iterate layers in order (including L0) and run modules sequentially
         for (const auto& [layer_idx, nodes] : layer_dict_) {
             if (layer_idx == 0) {
-                // L0: already have encoded_row
-                continue;
-            }
-            
-            // Run this layer
-            layer_results = runLayer(layer_results, layer_idx);
-            
-            // Merge for next layer (if not last layer)
-            if (layer_idx < static_cast<int>(layer_dict_.size()) - 1) {
-                // Get next layer nodes
-                int next_layer = layer_idx + 1;
-                if (layer_dict_.find(next_layer) != layer_dict_.end()) {
-                    layer_results = mergeLayerResults(layer_results, layer_dict_.at(next_layer));
+                // L0 modules consume raw encodings directly
+                if (row_idx == 0) {
+                    std::cout << "  Debug L0 inputs (row 0):" << std::endl;
+                    for (const auto& [name, sdr] : layer_outputs) {
+                        std::cout << "    " << name << " size=" << sdr.size << " dims=";
+                        const auto& dims = sdr.dimensions;
+                        for (size_t i = 0; i < dims.size(); i++) {
+                            std::cout << dims[i];
+                            if (i + 1 < dims.size()) std::cout << "x";
+                        }
+                        std::cout << std::endl;
+                    }
+                }
+                layer_outputs = runLayer(layer_outputs, layer_idx);
+                if (row_idx == 0) {
+                    std::cout << "  Debug L0 outputs (row 0):" << std::endl;
+                    for (const auto& [name, sdr] : layer_outputs) {
+                        std::cout << "    " << name << " size=" << sdr.size << " dims=";
+                        const auto& dims = sdr.dimensions;
+                        for (size_t i = 0; i < dims.size(); i++) {
+                            std::cout << dims[i];
+                            if (i + 1 < dims.size()) std::cout << "x";
+                        }
+                        std::cout << std::endl;
+                    }
+                }
+            } else {
+                // Merge predecessor outputs to build inputs for this layer
+                std::map<std::string, SDR> merged_inputs = mergeLayerResults(layer_outputs, nodes);
+                if (row_idx == 0) {
+                    std::cout << "  Debug merged inputs for layer " << layer_idx << " (row 0):" << std::endl;
+                    for (const auto& [name, sdr] : merged_inputs) {
+                        std::cout << "    " << name << " size=" << sdr.size << " dims=";
+                        const auto& dims = sdr.dimensions;
+                        for (size_t i = 0; i < dims.size(); i++) {
+                            std::cout << dims[i];
+                            if (i + 1 < dims.size()) std::cout << "x";
+                        }
+                        std::cout << std::endl;
+                    }
+                }
+                // Run this layer using merged inputs
+                layer_outputs = runLayer(merged_inputs, layer_idx);
+                if (row_idx == 0) {
+                    std::cout << "  Debug layer " << layer_idx << " outputs (row 0):" << std::endl;
+                    for (const auto& [name, sdr] : layer_outputs) {
+                        std::cout << "    " << name << " size=" << sdr.size << " dims=";
+                        const auto& dims = sdr.dimensions;
+                        for (size_t i = 0; i < dims.size(); i++) {
+                            std::cout << dims[i];
+                            if (i + 1 < dims.size()) std::cout << "x";
+                        }
+                        std::cout << std::endl;
+                    }
                 }
             }
         }
@@ -308,9 +363,21 @@ std::map<std::string, SDR> HTMPyramid::runLayer(const std::map<std::string, SDR>
                 continue;  // Skip if no input
             }
         }
+
+            // Guard against empty SDRs to catch wiring issues early
+            if (input_sdr.size == 0) {
+                throw std::runtime_error("Input SDR has size 0 for node " + node_name +
+                                         " at layer " + std::to_string(layer_idx));
+            }
         
-        // Run forward pass
-        SDR output = module->forward(input_sdr);
+            // Run forward pass with context for debugging
+            SDR output;
+            try {
+                output = module->forward(input_sdr);
+            } catch (const std::exception& e) {
+                throw std::runtime_error("Forward failed for node " + node_name + " (layer " +
+                                         std::to_string(layer_idx) + ") : " + e.what());
+            }
         results[node_name] = output;
     }
     

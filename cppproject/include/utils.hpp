@@ -39,6 +39,38 @@ std::vector<std::map<std::string, double>> loadParquet(const std::string& filena
 // Write results to CSV
 void saveResults(const std::string& filename, const std::vector<float>& scores);
 
+// Metrics calculation
+struct Metrics {
+    float precision = 0.0f;
+    float recall = 0.0f;
+    float f1 = 0.0f;
+    float accuracy = 0.0f;
+};
+
+// Calculate binary classification metrics
+Metrics calcMetrics(const std::vector<float>& predictions,
+                   const std::vector<int>& labels,
+                   float threshold);
+
+// Find best score using grid search (like Python find_best_score)
+struct BestScoreResult {
+    float score = 0.0f;
+    Metrics metrics;
+    float best_threshold = 0.0f;
+    std::map<std::string, float> params;
+};
+
+struct GridSearchResult {
+    BestScoreResult best;
+    Metrics average_metrics;
+    size_t thresholds_tested = 0;
+};
+
+GridSearchResult findBestScore(const std::vector<float>& predictions,
+                               const std::vector<int>& labels,
+                               const std::vector<float>& thresholds,
+                               int learn_period = 5000);
+
 // Graph utilities
 
 // Build layer dictionary from features and connections

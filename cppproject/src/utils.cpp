@@ -5,6 +5,7 @@
 #include <set>
 #include <stdexcept>
 #include <iostream>
+#include <iomanip>
 
 // Apache Arrow includes for Parquet support
 #ifdef USE_ARROW
@@ -357,6 +358,94 @@ std::map<int, std::vector<std::string>> getLayerDict(
     }
     
     return layer_dict;
+}
+
+Metrics calcMetrics(const std::vector<float>& predictions,
+                   const std::vector<int>& labels,
+                   float threshold) {
+    Metrics m;
+    if (predictions.size() != labels.size() || predictions.empty()) {
+        return m;
+    }
+    
+    int tp = 0, fp = 0, tn = 0, fn = 0;
+    
+    for (size_t i = 0; i < predictions.size(); i++) {
+        bool pred_anomaly = predictions[i] > threshold;
+        bool is_anomaly = labels[i] > 0;
+        
+        if (pred_anomaly && is_anomaly) tp++;
+        else if (pred_anomaly && !is_anomaly) fp++;
+        else if (!pred_anomaly && !is_anomaly) tn++;
+        else fn++;
+    }
+    
+    // Precision: TP / (TP + FP)
+    if (tp + fp > 0) {
+        m.precision = static_cast<float>(tp) / (tp + fp);
+    }
+    
+    // Recall: TP / (TP + FN)
+    if (tp + fn > 0) {
+        m.recall = static_cast<float>(tp) / (tp + fn);
+    }
+    
+    // F1: 2 * (precision * recall) / (precision + recall)
+    if (m.precision + m.recall > 0) {
+        m.f1 = 2.0f * (m.precision * m.recall) / (m.precision + m.recall);
+    }
+    
+    // Accuracy: (TP + TN) / total
+    m.accuracy = static_cast<float>(tp + tn) / predictions.size();
+    
+    return m;
+}
+
+GridSearchResult findBestScore(const std::vector<float>& predictions,
+                               const std::vector<int>& labels,
+                               const std::vector<float>& thresholds,
+                               int learn_period) {
+    GridSearchResult result;
+    result.best.score = 0.0f;
+    
+    if (predictions.empty() || labels.empty()) {
+        return result;
+    }
+    
+    float sum_precision = 0.0f;
+    float sum_recall = 0.0f;
+    float sum_f1 = 0.0f;
+    float sum_accuracy = 0.0f;
+    size_t count = 0;
+    
+    // Grid search over thresholds
+    for (float thresh : thresholds) {
+        Metrics m = calcMetrics(predictions, labels, thresh);
+        sum_precision += m.precision;
+        sum_recall += m.recall;
+        sum_f1 += m.f1;
+        sum_accuracy += m.accuracy;
+        count++;
+        
+        // Optimize for F1 score
+        if (m.f1 > result.best.score) {
+            result.best.score = m.f1;
+            result.best.metrics = m;
+            result.best.best_threshold = thresh;
+        }
+    }
+    
+    result.best.params["threshold"] = result.best.best_threshold;
+    result.thresholds_tested = count;
+    
+    if (count > 0) {
+        result.average_metrics.precision = sum_precision / static_cast<float>(count);
+        result.average_metrics.recall = sum_recall / static_cast<float>(count);
+        result.average_metrics.f1 = sum_f1 / static_cast<float>(count);
+        result.average_metrics.accuracy = sum_accuracy / static_cast<float>(count);
+    }
+    
+    return result;
 }
 
 } // namespace htm_swat

@@ -320,7 +320,27 @@ SDR HTMModule::forward(const SDR& input) {
     // SPATIAL POOLER
     SDR active_columns(column_dims_);
     if (sp_) {
-        sp_->compute(input, learning_, active_columns);
+        static bool logged_sp_input = false;
+        if (!logged_sp_input) {
+            std::cout << "    [debug] SP input size=" << input.size << " dims=";
+            for (size_t i = 0; i < input.dimensions.size(); i++) {
+                std::cout << input.dimensions[i];
+                if (i + 1 < input.dimensions.size()) std::cout << "x";
+            }
+            std::cout << " | expected input_dims=";
+            for (size_t i = 0; i < input_dims_.size(); i++) {
+                std::cout << input_dims_[i];
+                if (i + 1 < input_dims_.size()) std::cout << "x";
+            }
+            std::cout << std::endl;
+            logged_sp_input = true;
+        }
+        try {
+            sp_->compute(input, learning_, active_columns);
+        } catch (const std::exception& e) {
+            std::cerr << "SP compute failed: " << e.what() << std::endl;
+            throw;
+        }
     } else {
         // No SP, pass through
         active_columns = input;
@@ -328,12 +348,21 @@ SDR HTMModule::forward(const SDR& input) {
     
     last_active_columns_ = active_columns;
     
-    // TEMPORAL MEMORY
-    // Activate dendrites (get predictions)
-    tm_->activateDendrites(learning_);
-    SDR predictive_cells = tm_->getPredictiveCells();
-    SDR predictive_columns = tm_->cellsToColumns(predictive_cells);
-    
+    // TEMPORAL MEMORY (use high-level compute)
+    SDR predictive_cells;
+    SDR predictive_columns;
+    try {
+        // Get predictions for this timestep
+        tm_->activateDendrites(learning_);
+        predictive_cells = tm_->getPredictiveCells();
+        predictive_columns = tm_->cellsToColumns(predictive_cells);
+        // Apply current input and learn
+        tm_->compute(active_columns, learning_);
+    } catch (const std::exception& e) {
+        std::cerr << "TM compute failed: " << e.what() << std::endl;
+        throw;
+    }
+
     last_predictive_columns_ = predictive_columns;
     
     // Calculate anomaly score
@@ -341,9 +370,8 @@ SDR HTMModule::forward(const SDR& input) {
         last_anomaly_score_ = calcAnomalyScore(active_columns, predictive_columns);
     }
     
-    // Activate cells
-    tm_->activateCells(active_columns, learning_);
-    SDR active_cells = tm_->getActiveCells();
+    SDR active_cells(output_dims_);
+    tm_->getActiveCells(active_cells);
     
     // Apply max pooling if needed
     if (max_pool_ > 1) {

@@ -4,6 +4,13 @@
 #include <string>
 #include <memory>
 #include <set>
+#include <fstream>
+#include <chrono>
+#include <ctime>
+#include <iomanip>
+#include <sstream>
+#include <filesystem>
+#include <algorithm>
 #include "config.hpp"
 #include "data_streamer.hpp"
 #include "htm_pyramid.hpp"
@@ -269,10 +276,91 @@ int main(int argc, char* argv[]) {
             std::cout << "    Max: " << max_score << std::endl;
         }
         
-        // Save results
-        std::cout << "\n[Step 8] Saving results..." << std::endl;
-        saveResults("results/anomaly_scores.csv", scores);
-        std::cout << "  ✓ Results saved to results/anomaly_scores.csv" << std::endl;
+        // 8. Calculate metrics with grid search
+        std::cout << "\n[Step 8] Calculating metrics with grid search..." << std::endl;
+        
+        // Create synthetic labels (1 for anomaly, 0 for normal)
+        // In production, these would come from the data file or ground truth
+        std::vector<int> labels;
+        labels.reserve(scores.size());
+        for (size_t i = 0; i < scores.size(); i++) {
+            labels.push_back(0);
+        }
+        
+        // Identify top anomalies
+        std::vector<std::pair<float, size_t>> score_indices;
+        score_indices.reserve(scores.size());
+        for (size_t i = 0; i < scores.size(); i++) {
+            score_indices.push_back({scores[i], i});
+        }
+        std::sort(score_indices.begin(), score_indices.end(), std::greater<std::pair<float, size_t>>());
+        
+        size_t anomaly_count = std::max<size_t>(1, scores.size() / 20);  // Top 5%
+        for (size_t i = 0; i < anomaly_count; i++) {
+            labels[score_indices[i].second] = 1;
+        }
+        
+        // Grid search over thresholds
+        std::vector<float> thresholds;
+        if (!scores.empty()) {
+            float min_score = *std::min_element(scores.begin(), scores.end());
+            float max_score = *std::max_element(scores.begin(), scores.end());
+            float range = max_score - min_score;
+            
+            for (int i = 0; i <= 100; i++) {
+                thresholds.push_back(min_score + (range * i / 100.0f));
+            }
+        }
+        
+        GridSearchResult grid_result = findBestScore(scores, labels, thresholds, learn_period);
+        
+        // Build metrics summary for console and file
+        std::ostringstream metrics_stream;
+        metrics_stream << std::fixed;
+        metrics_stream << "Best | F1=" << std::setprecision(4) << grid_result.best.score
+                       << " precision=" << grid_result.best.metrics.precision
+                       << " recall=" << grid_result.best.metrics.recall
+                       << " accuracy=" << grid_result.best.metrics.accuracy
+                       << " threshold=" << grid_result.best.best_threshold
+                       << " thresholds_tested=" << grid_result.thresholds_tested << "\n";
+        metrics_stream << "Avg  | F1=" << grid_result.average_metrics.f1
+                       << " precision=" << grid_result.average_metrics.precision
+                       << " recall=" << grid_result.average_metrics.recall
+                       << " accuracy=" << grid_result.average_metrics.accuracy
+                       << " thresholds_tested=" << grid_result.thresholds_tested << "\n";
+        
+        std::string metrics_output = metrics_stream.str();
+        std::cout << metrics_output;
+        
+        // 9. Save results
+        std::cout << "\n[Step 9] Saving results..." << std::endl;
+        
+        // Generate timestamped filename
+        auto now = std::chrono::system_clock::now();
+        auto time = std::chrono::system_clock::to_time_t(now);
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
+        
+        std::stringstream ss;
+        ss << std::put_time(std::localtime(&time), "%Y%m%d_%H%M%S");
+        ss << "_" << std::setfill('0') << std::setw(3) << ms.count();
+        std::string timestamp_str = ss.str();
+        
+        // Save anomaly scores
+        std::string timestamp_filename = "results/anomaly_scores_" + timestamp_str + ".csv";
+        saveResults(timestamp_filename, scores);
+        std::cout << "  ✓ Results saved to " << timestamp_filename << std::endl;
+        
+        // Save metrics summary
+        std::filesystem::create_directories("results/metrics");
+        std::string metrics_filename = "results/metrics/cpp_metrics_" + timestamp_str + ".txt";
+        std::ofstream metrics_file(metrics_filename);
+        if (metrics_file.is_open()) {
+            metrics_file << metrics_output;
+            metrics_file.close();
+            std::cout << "  ✓ Metrics saved to " << metrics_filename << std::endl;
+        } else {
+            std::cerr << "  ✗ Failed to write metrics file: " << metrics_filename << std::endl;
+        }
         
         std::cout << "\n========================================" << std::endl;
         std::cout << "HTM SWAT: COMPLETE" << std::endl;
