@@ -7,6 +7,8 @@
 #include <stdexcept>
 #include <algorithm>
 #include <iterator>
+#include <future>   // for std::async, std::future
+#include <vector>
 #include <htm/encoders/RandomDistributedScalarEncoder.hpp>
 
 namespace htm_swat {
@@ -79,14 +81,20 @@ void HTMPyramid::build() {
     const UInt active_bits = static_cast<UInt>(encoder_size * encoder_sparsity);
     
     // Create encoders for each feature
+    // IMPORTANT: match Python seeding behaviour:
+    //   params['seed'] = seed * EncoderFactory.get_encoder_idx()
+    // where encoder_idx starts at 1 and increments per encoder.
     std::map<std::string, std::shared_ptr<RandomDistributedScalarEncoder>> encoders;
+    int encoder_idx = 1;
     for (const auto& [feature_name, feature_config] : features_config_) {
         std::string feature_type = feature_config.count("type") ? feature_config.at("type") : "float";
         
         RDSE_Parameters params;
         params.size = encoder_size;
         params.activeBits = active_bits;
-        params.seed = seed_;
+        // Give each encoder a different seed, like Python's Feature/EncoderFactory logic
+        // (seed * encoder_index) to reduce collisions and match Python randomness.
+        params.seed = seed_ * encoder_idx;
         
         if (feature_type == "float") {
             if (feature_config.count("resolution")) {
@@ -102,6 +110,7 @@ void HTMPyramid::build() {
         
         try {
             encoders[feature_name] = std::make_shared<RandomDistributedScalarEncoder>(params);
+            encoder_idx++;
         } catch (const std::exception& e) {
             std::cerr << "Failed to create encoder for " << feature_name << ": " << e.what() << std::endl;
         }
@@ -352,44 +361,135 @@ std::map<std::string, SDR> HTMPyramid::runLayer(const std::map<std::string, SDR>
     }
     
     const auto& layer_modules = modules_by_layer_.at(layer_idx);
-    
-    for (const auto& [node_name, module] : layer_modules) {
-        // Get input SDR for this node
-        SDR input_sdr;
+
+    // ------------------------------------------------------------------
+    // Multithreaded execution of modules within a single layer
+    //
+    // Python uses multiprocessing (one worker per model key) in
+    // ModelPyramid._run_layer. Here we mirror that idea in C++ with
+    // threads: modules in the same layer are independent, so we can
+    // safely run their forward passes in parallel.
+    //
+    // For simplicity and control we:
+    //   - collect all node names in this layer,
+    //   - split them into contiguous chunks,
+    //   - run each chunk in a separate worker (up to 4 workers),
+    //   - each worker builds a local map<string, SDR>,
+    //   - finally we merge all local maps into 'results'.
+    //
+    // This keeps thread-safety simple (no shared mutation during
+    // forward) while giving us parallelism similar to the Python hive.
+    // ------------------------------------------------------------------
+
+    // Collect node names for deterministic partitioning
+    std::vector<std::string> node_names;
+    node_names.reserve(layer_modules.size());
+    for (const auto& kv : layer_modules) {
+        node_names.push_back(kv.first);
+    }
+
+    if (node_names.empty()) {
+        return results;
+    }
+
+    // Limit the number of worker threads per layer.
+    // This can be tuned; 4 is a reasonable default comparable
+    // to a small process pool in the Python implementation.
+    const std::size_t max_threads = 4;
+    const std::size_t num_threads =
+        std::min<std::size_t>(max_threads, node_names.size());
+
+    // Worker lambda processes a contiguous subset of node_names
+    auto worker = [&](std::size_t thread_id, std::size_t start, std::size_t end)
+        -> std::map<std::string, SDR> {
+        // std::cout << "  [Thread " << thread_id << "] Started - Layer " << layer_idx 
+        //           << ", processing " << (end - start) << " nodes (indices " 
+        //           << start << "-" << (end - 1) << ")" << std::endl;
         
-        if (layer_idx == 0) {
-            // L0: input comes from encoded_row
-            if (inputs.find(node_name) != inputs.end()) {
-                input_sdr = inputs.at(node_name);
-            } else {
-                continue;  // Skip if no input
+        std::map<std::string, SDR> local_results;
+
+        for (std::size_t i = start; i < end; ++i) {
+            const std::string& node_name = node_names[i];
+            auto it_mod = layer_modules.find(node_name);
+            if (it_mod == layer_modules.end()) {
+                continue;
             }
-        } else {
-            // L1+: input comes from merged predecessor outputs
-            if (inputs.find(node_name) != inputs.end()) {
-                input_sdr = inputs.at(node_name);
-            } else {
-                continue;  // Skip if no input
+            HTMModule* module = it_mod->second;
+
+            // Get input SDR for this node
+            SDR input_sdr;
+            auto it_in = inputs.find(node_name);
+            if (it_in == inputs.end()) {
+                // No input for this node in this row; skip (same as before)
+                continue;
             }
-        }
+            input_sdr = it_in->second;
 
             // Guard against empty SDRs to catch wiring issues early
             if (input_sdr.size == 0) {
-                throw std::runtime_error("Input SDR has size 0 for node " + node_name +
-                                         " at layer " + std::to_string(layer_idx));
+                throw std::runtime_error(
+                    "Input SDR has size 0 for node " + node_name +
+                    " at layer " + std::to_string(layer_idx));
             }
-        
-            // Run forward pass with context for debugging
+
+            // Run forward pass; any exception is propagated to the caller
             SDR output;
             try {
                 output = module->forward(input_sdr);
             } catch (const std::exception& e) {
-                throw std::runtime_error("Forward failed for node " + node_name + " (layer " +
-                                         std::to_string(layer_idx) + ") : " + e.what());
+                throw std::runtime_error(
+                    "Forward failed for node " + node_name + " (layer " +
+                    std::to_string(layer_idx) + ") : " + e.what());
             }
-        results[node_name] = output;
+
+            local_results[node_name] = output;
+        }
+
+        // std::cout << "  [Thread " << thread_id << "] Ended - Layer " << layer_idx 
+        //           << ", processed " << local_results.size() << " nodes" << std::endl;
+        
+        return local_results;
+    };
+
+    // Launch workers with std::async
+    std::vector<std::future<std::map<std::string, SDR>>> futures;
+    futures.reserve(num_threads);
+
+    const std::size_t total = node_names.size();
+    const std::size_t chunk =
+        (total + num_threads - 1) / num_threads;  // ceil division
+
+    // std::cout << "  [Layer " << layer_idx << "] Launching " << num_threads 
+    //           << " threads for " << total << " nodes" << std::endl;
+
+    for (std::size_t t = 0; t < num_threads; ++t) {
+        const std::size_t start = t * chunk;
+        if (start >= total) {
+            break;
+        }
+        const std::size_t end = std::min(start + chunk, total);
+
+        // std::cout << "  [Layer " << layer_idx << "] Launching thread " << t 
+        //           << " for nodes [" << start << ", " << end << ")" << std::endl;
+        
+        futures.emplace_back(
+            std::async(std::launch::async, worker, t, start, end));
+    }
+
+    // Collect results from all workers
+    // std::cout << "  [Layer " << layer_idx << "] Collecting results from " 
+    //           << futures.size() << " threads..." << std::endl;
+    
+    for (std::size_t i = 0; i < futures.size(); ++i) {
+        auto local = futures[i].get();  // may rethrow exceptions from worker
+        results.insert(local.begin(), local.end());
+        // std::cout << "  [Layer " << layer_idx << "] Collected results from thread " 
+        //           << i << " (" << local.size() << " nodes)" << std::endl;
     }
     
+    // std::cout << "  [Layer " << layer_idx << "] All threads completed, total results: " 
+    //           << results.size() << std::endl;
+
     return results;
 }
 

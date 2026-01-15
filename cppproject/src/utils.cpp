@@ -110,8 +110,11 @@ float calcAnomalyScore(const SDR& active, const SDR& predictive) {
     auto active_bits = active.getSparse();
     auto predictive_bits = predictive.getSparse();
     
+    // Match Python implementation in `htm_source.utils.metric.calc_anomaly_score`:
+    // If there are no active bits, return 0.0 (not anomalous),
+    // because there is no evidence to compare against predictions.
     if (active_bits.empty()) {
-        return 1.0f;  // No active bits = anomaly
+        return 0.0f;
     }
     
     // Calculate intersection
