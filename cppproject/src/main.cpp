@@ -15,6 +15,7 @@
 #include "data_streamer.hpp"
 #include "htm_pyramid.hpp"
 #include "utils.hpp"
+#include "experiment_utils.hpp"
 
 // HTM core includes
 #include <htm/types/Sdr.hpp>
@@ -31,6 +32,20 @@ int main(int argc, char* argv[]) {
     std::cout << std::endl;
     
     try {
+        // 1. Load configs from YAML
+        // generate timestamp/run name up-front for experiment outputs
+        auto now_start = std::chrono::system_clock::now();
+        auto time_start = std::chrono::system_clock::to_time_t(now_start);
+        auto ms_start = std::chrono::duration_cast<std::chrono::milliseconds>(now_start.time_since_epoch()) % 1000;
+        std::stringstream ss_start;
+        ss_start << std::put_time(std::localtime(&time_start), "%Y%m%d_%H%M%S");
+        ss_start << "_" << std::setfill('0') << std::setw(3) << ms_start.count();
+        std::string run_timestamp = ss_start.str();
+        // start experiment monitor
+        htm_swat::ExperimentMonitor::instance().start(run_timestamp);
+
+        htm_swat::ExperimentMonitor::instance().addTimingEvent("configs_loaded");
+
         // 1. Load configs from YAML
         std::cout << "[Step 1] Loading configs from YAML..." << std::endl;
         
@@ -91,6 +106,7 @@ int main(int argc, char* argv[]) {
         
         // 2. Load data
         std::cout << "\n[Step 2] Loading data..." << std::endl;
+        htm_swat::ExperimentMonitor::instance().addTimingEvent("data_load_start");
         // Try parquet first, fall back to CSV if Arrow is not available
         string data_path = "data/swat_dataset.parquet";
         
@@ -137,6 +153,7 @@ int main(int argc, char* argv[]) {
             if (full_data.empty()) {
                 throw std::runtime_error("Loaded data is empty");
             }
+            htm_swat::ExperimentMonitor::instance().addTimingEvent("data_load_complete");
             
         } catch (const std::exception& e) {
             std::cerr << "ERROR loading data: " << e.what() << std::endl;
@@ -193,6 +210,7 @@ int main(int argc, char* argv[]) {
         
         // Filter and slice data according to config
         std::vector<std::map<std::string, double>> data;
+        size_t filtered_count = 0;
         for (int i = min_data; i < std::min(static_cast<int>(full_data.size()), max_data); i += res_data) {
             if (i < static_cast<int>(full_data.size())) {
                 std::map<std::string, double> filtered_row;
@@ -207,9 +225,16 @@ int main(int argc, char* argv[]) {
                 
                 if (!filtered_row.empty()) {
                     data.push_back(filtered_row);
+                    filtered_count++;
+                    if (filtered_count % 1000 == 0) {
+                        std::stringstream ev; ev << "filtered_" << filtered_count << "_rows";
+                        htm_swat::ExperimentMonitor::instance().addTimingEvent(ev.str());
+                    }
                 }
             }
         }
+        // final filtered count event
+        htm_swat::ExperimentMonitor::instance().addTimingEvent("data_filtered_" + std::to_string(data.size()) + "_rows");
         
         std::cout << "  ✓ Processed " << data.size() << " rows (sliced from " << full_data.size() 
                   << ", filtered to " << required_features.size() << " features)" << std::endl;
@@ -334,25 +359,16 @@ int main(int argc, char* argv[]) {
         
         // 9. Save results
         std::cout << "\n[Step 9] Saving results..." << std::endl;
-        
-        // Generate timestamped filename
-        auto now = std::chrono::system_clock::now();
-        auto time = std::chrono::system_clock::to_time_t(now);
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
-        
-        std::stringstream ss;
-        ss << std::put_time(std::localtime(&time), "%Y%m%d_%H%M%S");
-        ss << "_" << std::setfill('0') << std::setw(3) << ms.count();
-        std::string timestamp_str = ss.str();
-        
-        // Save anomaly scores
-        std::string timestamp_filename = "results/anomaly_scores_" + timestamp_str + ".csv";
-        saveResults(timestamp_filename, scores);
-        std::cout << "  ✓ Results saved to " << timestamp_filename << std::endl;
-        
-        // Save metrics summary
-        std::filesystem::create_directories("results/metrics");
-        std::string metrics_filename = "results/metrics/cpp_metrics_" + timestamp_str + ".txt";
+        std::string exp_dir = htm_swat::ExperimentMonitor::instance().experimentDir();
+        std::filesystem::create_directories(exp_dir);
+
+        // Save anomaly scores into experiment directory
+        std::string anomaly_filename = exp_dir + "/anomaly_scores.csv";
+        saveResults(anomaly_filename, scores);
+        std::cout << "  ✓ Results saved to " << anomaly_filename << std::endl;
+
+        // Save metrics summary text
+        std::string metrics_filename = exp_dir + "/model_performance_metrics.txt";
         std::ofstream metrics_file(metrics_filename);
         if (metrics_file.is_open()) {
             metrics_file << metrics_output;
@@ -361,6 +377,34 @@ int main(int argc, char* argv[]) {
         } else {
             std::cerr << "  ✗ Failed to write metrics file: " << metrics_filename << std::endl;
         }
+
+        // Write JSON experiment artifacts
+        std::filesystem::create_directories(exp_dir);
+        std::string perf_json = exp_dir + "/model_performance_metrics.json";
+        htm_swat::ExperimentMonitor::instance().writePerformanceMetrics(
+            perf_json,
+            run_timestamp,
+            grid_result.thresholds_tested,
+            grid_result.best.best_threshold,
+            grid_result.best.metrics.f1,
+            grid_result.best.metrics.precision,
+            grid_result.best.metrics.recall,
+            grid_result.best.metrics.accuracy,
+            grid_result.average_metrics.f1,
+            grid_result.average_metrics.precision,
+            grid_result.average_metrics.recall,
+            grid_result.average_metrics.accuracy
+        );
+
+        std::string roc_json = exp_dir + "/roc_thresholds.json";
+        htm_swat::ExperimentMonitor::instance().writeRocThresholds(roc_json, thresholds, scores, labels);
+
+        std::string eff_json = exp_dir + "/model_efficiency_metrics.json";
+        htm_swat::ExperimentMonitor::instance().writeEfficiencyMetrics(eff_json);
+
+        // stop sampling
+        htm_swat::ExperimentMonitor::instance().addTimingEvent("results_saved");
+        htm_swat::ExperimentMonitor::instance().stop();
         
         std::cout << "\n========================================" << std::endl;
         std::cout << "HTM SWAT: COMPLETE" << std::endl;

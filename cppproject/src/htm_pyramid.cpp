@@ -1,7 +1,9 @@
 #include "htm_pyramid.hpp"
 #include "utils.hpp"
 #include "config.hpp"
+#include "experiment_utils.hpp"
 #include <iostream>
+#include <chrono>
 #include <stdexcept>
 #include <algorithm>
 #include <iterator>
@@ -237,6 +239,8 @@ void HTMPyramid::run() {
     scores_.reserve(data_.size());
     
     for (size_t row_idx = 0; row_idx < data_.size(); row_idx++) {
+        // measure per-row latency
+        auto row_start = std::chrono::steady_clock::now();
         const auto& row = data_[row_idx];
         
         // Encode row using DataStreamer (get merged SDRs for L0)
@@ -326,7 +330,12 @@ void HTMPyramid::run() {
         } else {
             scores_.push_back(0.0f);
         }
-        
+
+        // record per-row latency
+        auto row_end = std::chrono::steady_clock::now();
+        double elapsed_ms = std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(row_end - row_start).count();
+        htm_swat::ExperimentMonitor::instance().recordRowLatency(elapsed_ms);
+
         if ((row_idx + 1) % 1000 == 0) {
             std::cout << "  Processed " << (row_idx + 1) << " rows..." << std::endl;
         }

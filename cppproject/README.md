@@ -150,7 +150,15 @@ chmod +x scripts/install_htm_core.sh
 
 This takes ~10-15 minutes.
 
+
 ### Build
+**Note:** Before building, install libyaml-cpp-dev if you have not already  
+```bash
+sudo apt-get update
+sudo apt-get install libyaml-cpp-dev
+```
+
+Then build  
 
 ```bash
 mkdir build

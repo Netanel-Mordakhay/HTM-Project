@@ -157,6 +157,7 @@ set(SOURCES
     src/htm_pyramid.cpp
     src/encoder.cpp
     src/utils.cpp
+    src/experiment_utils.cpp
 )
 
 # Header files (for IDE support)
@@ -167,6 +168,7 @@ set(HEADERS
     include/config.hpp
     include/data_streamer.hpp
     include/utils.hpp
+    include/experiment_utils.hpp
 )
 
 # ============================================================================
@@ -207,11 +209,26 @@ target_link_libraries(htm_swat PRIVATE yaml-cpp)
 
 # Link Apache Arrow/Parquet (if enabled)
 if(USE_ARROW AND Arrow_FOUND AND Parquet_FOUND)
-    target_link_libraries(htm_swat PRIVATE 
-        Arrow::arrow_shared
-        Parquet::parquet_shared
-    )
-    message(STATUS "Linking Apache Arrow/Parquet libraries")
+    # Prefer shared targets when available, fall back to static targets provided
+    # by some package managers (vcpkg often provides static targets).
+    if(TARGET Arrow::arrow_shared)
+        set(_ARROW_TARGET Arrow::arrow_shared)
+    elseif(TARGET Arrow::arrow_static)
+        set(_ARROW_TARGET Arrow::arrow_static)
+    else()
+        message(FATAL_ERROR "Arrow targets not found (expected Arrow::arrow_shared or Arrow::arrow_static)")
+    endif()
+
+    if(TARGET Parquet::parquet_shared)
+        set(_PARQUET_TARGET Parquet::parquet_shared)
+    elseif(TARGET Parquet::parquet_static)
+        set(_PARQUET_TARGET Parquet::parquet_static)
+    else()
+        message(FATAL_ERROR "Parquet targets not found (expected Parquet::parquet_shared or Parquet::parquet_static)")
+    endif()
+
+    target_link_libraries(htm_swat PRIVATE ${_ARROW_TARGET} ${_PARQUET_TARGET})
+    message(STATUS "Linking Apache Arrow/Parquet libraries (${_ARROW_TARGET}, ${_PARQUET_TARGET})")
 endif()
 
 # ============================================================================
