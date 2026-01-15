@@ -21,14 +21,18 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     gnupg \
     lsb-release \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Try to install Apache Arrow/Parquet (optional - for parquet file support)
-# Note: Arrow packages may not be available in default Ubuntu repos
-# If not available, the code will fall back to CSV loading
-RUN apt-get update && \
-    (apt-get install -y libarrow-dev libparquet-dev 2>/dev/null || \
-     echo "Arrow packages not available - will use CSV fallback") && \
+# Install Apache Arrow/Parquet from official repository (for parquet file support)
+# The official Arrow APT repository provides packages with proper CMake support
+RUN curl -fsSL https://apache.jfrog.io/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb \
+    -o /tmp/apache-arrow-apt-source.deb && \
+    apt-get update && \
+    apt-get install -y /tmp/apache-arrow-apt-source.deb && \
+    apt-get update && \
+    apt-get install -y libarrow-dev libparquet-dev && \
+    rm -f /tmp/apache-arrow-apt-source.deb && \
     rm -rf /var/lib/apt/lists/*
 
 # Install CMake 3.28+ from Kitware APT repository (handles architecture automatically)
