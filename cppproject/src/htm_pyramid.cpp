@@ -77,14 +77,20 @@ void HTMPyramid::build() {
     const UInt active_bits = static_cast<UInt>(encoder_size * encoder_sparsity);
     
     // Create encoders for each feature
+    // IMPORTANT: match Python seeding behaviour:
+    //   params['seed'] = seed * EncoderFactory.get_encoder_idx()
+    // where encoder_idx starts at 1 and increments per encoder.
     std::map<std::string, std::shared_ptr<RandomDistributedScalarEncoder>> encoders;
+    int encoder_idx = 1;
     for (const auto& [feature_name, feature_config] : features_config_) {
         std::string feature_type = feature_config.count("type") ? feature_config.at("type") : "float";
         
         RDSE_Parameters params;
         params.size = encoder_size;
         params.activeBits = active_bits;
-        params.seed = seed_;
+        // Give each encoder a different seed, like Python's Feature/EncoderFactory logic
+        // (seed * encoder_index) to reduce collisions and match Python randomness.
+        params.seed = seed_ * encoder_idx;
         
         if (feature_type == "float") {
             if (feature_config.count("resolution")) {
@@ -100,6 +106,7 @@ void HTMPyramid::build() {
         
         try {
             encoders[feature_name] = std::make_shared<RandomDistributedScalarEncoder>(params);
+            encoder_idx++;
         } catch (const std::exception& e) {
             std::cerr << "Failed to create encoder for " << feature_name << ": " << e.what() << std::endl;
         }
