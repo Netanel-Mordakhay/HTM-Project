@@ -77,7 +77,7 @@ void ExperimentMonitor::recordRowLatency(double ms) {
 
 std::string ExperimentMonitor::experimentDir() const {
     std::ostringstream ss;
-    ss << "results/experiments_cpp_naive_" << run_name_;
+    ss << "results/experiments_cpp_MultiThread_" << run_name_;
     return ss.str();
 }
 
