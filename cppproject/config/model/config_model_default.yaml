@@ -21,7 +21,7 @@ encoders:
 
 models:
   sp:
-    # Light tuning: slightly wider input potential (more overlap neighbors), slightly sparser columns
+    # Light tuning (reverted stricter pass — restored ~0.30 F1 regime on your slice)
     potentialPct: 0.24
     columnDimensions: 1664  # [2048]
     potentialRadius: 1.0 #0.4
