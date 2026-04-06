@@ -25,11 +25,9 @@ models:
     potentialPct: 0.24
     columnDimensions: 1664 # [2048]
     potentialRadius: 1.0 #0.4
-    # localAreaDensity: 0.019
-    localAreaDensity: 0.019 # TESTING
+    localAreaDensity: 0.019
     globalInhibition: yes
-    # boostStrength: [2, 2.6, 1, 3]
-    boostStrength: [1.2, 1.2, 1.2, 1.2] # TESTING
+    boostStrength: [2, 2.6, 1, 3]
     stimulusThreshold: [32, 24, 20, 12]
     synPermConnected: 0.5
     synPermActiveInc: [3.493e-3, 1.275e-4, 6.368e-3, 3.186e-2]
@@ -39,21 +37,16 @@ models:
     dutyCyclePeriod: [2000, 2450, 2000, 2300]
 
   tm:
-    #cellsPerColumn: 4 # 2
-    cellsPerColumn: 16 # TESTING
+    cellsPerColumn: 4 # 2
     # Slightly stricter dendrites → fewer noisy predictions → often helps precision/F1 tradeoff
-    #minThreshold: 18
-    minThreshold: 16 # TESTING
-    # activationThreshold: [32, 48, 43, 48]
-    activationThreshold: [26, 30, 28, 32] # TESTING
+    minThreshold: 18
+    activationThreshold: [32, 48, 43, 48]
     initialPerm: 0.21
     maxSegmentsPerCell: [128, 64, 160, 112]
     maxSynapsesPerSegment: [480, 224, 224, 224]
-    # newSynapseCount: [56, 56, 32, 32]
-    newSynapseCount: [32, 32, 32, 32] # TESTING
+    newSynapseCount: [56, 56, 32, 32]
     permanenceConnected: 0.6
     permanenceInc: [0.075, 0.075, 0.075, 0.175]
-    # permanenceDec: [7.26e-4, 4.2e-4, 0.1527, 7.003e-5]
-    permanenceDec: [7.26e-4, 4.2e-4, 7.0e-4, 7.003e-5] # TESTING
-    # predictedSegmentDecrement: [0.003, 0.003, 0.003, 0.007] # (roughly 2 * permInc * sparsity)
-    predictedSegmentDecrement: [0.005, 0.005, 0.005, 0.005]
+    permanenceDec: [7.26e-4, 4.2e-4, 0.1527, 7.003e-5]
+    predictedSegmentDecrement: [0.003, 0.003, 0.003, 0.007] # (roughly 2 * permInc * sparsity)
+

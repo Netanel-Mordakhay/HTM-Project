@@ -1,0 +1,3 @@
+Time | build=1.42s run=61.32s total=1m 2.74s
+Best | F1=0.0000 precision=0.0000 recall=0.0000 accuracy=0.9997 threshold=0.1000 smooth_window=3 grace_window=5 evaluations=1376
+Avg  | F1=0.0000 precision=0.0000 recall=0.0000 accuracy=0.9997 evaluations=1376

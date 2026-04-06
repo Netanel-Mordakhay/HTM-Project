@@ -1,0 +1,3 @@
+Best (Python window/slice F1) | F1=0.0171 precision=0.0097 recall=0.0741 accuracy=0.9977 threshold=0.9300 smooth_box=33 grace_window=5 threshold_delta=0.0500 grid_cells=1360
+Best (pointwise F1) | F1=0.2145 precision=0.1207 recall=0.9666 accuracy=0.2125 threshold=0.9400 thresholds_tested=85
+Avg (pointwise over thresholds) | F1=0.2008 precision=0.1117 recall=0.9970 accuracy=0.1226 thresholds_tested=85
