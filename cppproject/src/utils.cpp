@@ -365,15 +365,24 @@ std::map<int, std::vector<std::string>> getLayerDict(
 
 Metrics calcMetrics(const std::vector<float>& predictions,
                    const std::vector<int>& labels,
-                   float threshold) {
+                   float threshold,
+                   int learn_period) {
     Metrics m;
     if (predictions.size() != labels.size() || predictions.empty()) {
         return m;
     }
-    
+
+    size_t start = 0;
+    if (learn_period > 0) {
+        start = static_cast<size_t>(learn_period);
+        if (start >= predictions.size()) {
+            return m;
+        }
+    }
+
     int tp = 0, fp = 0, tn = 0, fn = 0;
-    
-    for (size_t i = 0; i < predictions.size(); i++) {
+
+    for (size_t i = start; i < predictions.size(); i++) {
         bool pred_anomaly = predictions[i] > threshold;
         bool is_anomaly = labels[i] > 0;
         
@@ -423,7 +432,7 @@ GridSearchResult findBestScore(const std::vector<float>& predictions,
     
     // Grid search over thresholds
     for (float thresh : thresholds) {
-        Metrics m = calcMetrics(predictions, labels, thresh);
+        Metrics m = calcMetrics(predictions, labels, thresh, learn_period);
         sum_precision += m.precision;
         sum_recall += m.recall;
         sum_f1 += m.f1;

@@ -191,22 +191,31 @@ int main(int argc, char* argv[]) {
                   << ", res_data=" << res_data << std::endl;
         std::cout << "  Expected rows: " << ((max_data - min_data) / res_data) << std::endl;
         
-        // Filter and slice data according to config
+        // Filter and slice data according to config (same indexing as Python:
+        // data.iloc[min_data:max_data:res], y = data['label'].values)
         std::vector<std::map<std::string, double>> data;
+        std::vector<int> labels;
         for (int i = min_data; i < std::min(static_cast<int>(full_data.size()), max_data); i += res_data) {
             if (i < static_cast<int>(full_data.size())) {
                 std::map<std::string, double> filtered_row;
                 const auto& original_row = full_data[i];
-                
+
                 // Only include columns that are in required_features
                 for (const auto& feature : required_features) {
                     if (original_row.find(feature) != original_row.end()) {
                         filtered_row[feature] = original_row.at(feature);
                     }
                 }
-                
+
                 if (!filtered_row.empty()) {
                     data.push_back(filtered_row);
+                    int y = 0;
+                    if (original_row.find("label") != original_row.end()) {
+                        y = static_cast<int>(std::lround(original_row.at("label")));
+                    } else if (original_row.find("Label") != original_row.end()) {
+                        y = static_cast<int>(std::lround(original_row.at("Label")));
+                    }
+                    labels.push_back(y);
                 }
             }
         }
@@ -276,30 +285,25 @@ int main(int argc, char* argv[]) {
             std::cout << "    Max: " << max_score << std::endl;
         }
         
-        // 8. Calculate metrics with grid search
+        // 8. Calculate metrics with grid search (ground truth = dataset label column)
         std::cout << "\n[Step 8] Calculating metrics with grid search..." << std::endl;
-        
-        // Create synthetic labels (1 for anomaly, 0 for normal)
-        // In production, these would come from the data file or ground truth
-        std::vector<int> labels;
-        labels.reserve(scores.size());
-        for (size_t i = 0; i < scores.size(); i++) {
-            labels.push_back(0);
+
+        if (labels.size() != scores.size()) {
+            std::cerr << "ERROR: label count (" << labels.size()
+                      << ") != anomaly score count (" << scores.size()
+                      << "); cannot compute metrics." << std::endl;
+            return 1;
         }
-        
-        // Identify top anomalies
-        std::vector<std::pair<float, size_t>> score_indices;
-        score_indices.reserve(scores.size());
-        for (size_t i = 0; i < scores.size(); i++) {
-            score_indices.push_back({scores[i], i});
+        int n_positive = 0;
+        for (int y : labels) {
+            if (y > 0) {
+                ++n_positive;
+            }
         }
-        std::sort(score_indices.begin(), score_indices.end(), std::greater<std::pair<float, size_t>>());
-        
-        size_t anomaly_count = std::max<size_t>(1, scores.size() / 20);  // Top 5%
-        for (size_t i = 0; i < anomaly_count; i++) {
-            labels[score_indices[i].second] = 1;
-        }
-        
+        std::cout << "  Ground-truth labels: " << n_positive << " positive / " << labels.size()
+                  << " rows (" << std::fixed << std::setprecision(2)
+                  << (100.0 * n_positive / std::max(1, static_cast<int>(labels.size()))) << "%)\n";
+
         // Grid search over thresholds
         std::vector<float> thresholds;
         if (!scores.empty()) {

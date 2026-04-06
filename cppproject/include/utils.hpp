@@ -47,10 +47,12 @@ struct Metrics {
     float accuracy = 0.0f;
 };
 
-// Calculate binary classification metrics
+// Calculate binary classification metrics (per timestep: pred = score > threshold).
+// If learn_period > 0, indices [0, learn_period) are skipped (matches Python eval window).
 Metrics calcMetrics(const std::vector<float>& predictions,
                    const std::vector<int>& labels,
-                   float threshold);
+                   float threshold,
+                   int learn_period = 0);
 
 // Find best score using grid search (like Python find_best_score)
 struct BestScoreResult {

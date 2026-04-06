@@ -1,0 +1,3 @@
+Time | build=1.29s run=137.62s total=2m 18.92s
+Best | F1=0.2040 precision=0.1136 recall=0.9970 accuracy=0.1467 threshold=0.3100 smooth_window=1 evaluations=101
+Avg  | F1=0.1377 precision=0.0806 recall=0.6052 accuracy=0.2468 evaluations=101
