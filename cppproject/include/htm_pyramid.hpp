@@ -11,6 +11,7 @@
 #include "data_streamer.hpp"
 #include "htm_module.hpp"
 #include "config.hpp"
+#include "utils.hpp"
 
 namespace htm_swat {
 
@@ -19,7 +20,7 @@ using namespace htm;
 class HTMPyramid {
 public:
     // Constructor matching Python ModelPyramid
-    HTMPyramid(const std::vector<std::map<std::string, double>>& data,
+    HTMPyramid(RowStreamer& streamer,
                const std::map<std::string, std::map<std::string, std::string>>& features_config,
                const std::map<std::string, std::map<std::string, std::string>>& model_config,
                const std::map<std::string, std::vector<std::string>>& feature_plan,
@@ -42,7 +43,10 @@ public:
     
     // Get anomaly scores from head module
     std::vector<float> getScores() const { return scores_; }
-    
+
+    // Get ground-truth labels collected during run()
+    std::vector<int> getLabels() const { return labels_; }
+
     // Get scores as map (for compatibility)
     std::map<std::string, std::vector<float>> getScoresMap() const;
     
@@ -61,8 +65,8 @@ private:
     // Get input dimensions for a module
     std::vector<UInt> getInputDims(const std::string& node_name, int layer_idx);
     
-    // Data and configs
-    std::vector<std::map<std::string, double>> data_;
+    // Data source (streamed row-by-row — not held in memory)
+    RowStreamer* row_streamer_;
     std::unique_ptr<DataStreamer> data_streamer_;
     std::map<std::string, std::map<std::string, std::string>> features_config_;
     std::map<std::string, std::map<std::string, std::string>> model_config_;
@@ -86,6 +90,7 @@ private:
     
     // Results
     std::vector<float> scores_;
+    std::vector<int> labels_;
     std::string head_node_;  // L3_1
 };
 

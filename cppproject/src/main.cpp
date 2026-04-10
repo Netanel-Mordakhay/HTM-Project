@@ -89,63 +89,7 @@ int main(int argc, char* argv[]) {
             }
         }
         
-        // 2. Load data
-        std::cout << "\n[Step 2] Loading data..." << std::endl;
-        // Try parquet first, fall back to CSV if Arrow is not available
-        string data_path = "data/swat_dataset.parquet";
-        
-        std::vector<std::map<std::string, double>> full_data;
-        try {
-            // Try to load parquet file first
-            if (data_path.find(".parquet") != std::string::npos) {
-                std::cout << "  Loading parquet file: " << data_path << std::endl;
-                full_data = loadParquet(data_path);
-                std::cout << "  ✓ Loaded " << full_data.size() << " rows from parquet file" << std::endl;
-            } else if (data_path.find(".csv") != std::string::npos) {
-                std::cout << "  Loading CSV file: " << data_path << std::endl;
-                full_data = loadCSV(data_path);
-                std::cout << "  ✓ Loaded " << full_data.size() << " rows from CSV file" << std::endl;
-            } else {
-                // Try both extensions
-                std::string parquet_path = data_path;
-                if (parquet_path.find(".") == std::string::npos) {
-                    parquet_path += ".parquet";
-                }
-                
-                try {
-                    full_data = loadParquet(parquet_path);
-                    std::cout << "  ✓ Loaded " << full_data.size() << " rows from parquet file" << std::endl;
-                } catch (const std::exception& e1) {
-                    // Try CSV
-                    std::string csv_path = data_path;
-                    if (csv_path.find(".") == std::string::npos) {
-                        csv_path += ".csv";
-                    }
-                    try {
-                        full_data = loadCSV(csv_path);
-                        std::cout << "  ✓ Loaded " << full_data.size() << " rows from CSV file" << std::endl;
-                    } catch (const std::exception& e2) {
-                        throw std::runtime_error(
-                            "Failed to load data file. Tried:\n"
-                            "  Parquet: " + std::string(e1.what()) + "\n"
-                            "  CSV: " + std::string(e2.what())
-                        );
-                    }
-                }
-            }
-            
-            if (full_data.empty()) {
-                throw std::runtime_error("Loaded data is empty");
-            }
-            
-        } catch (const std::exception& e) {
-            std::cerr << "ERROR loading data: " << e.what() << std::endl;
-            std::cerr << "  Make sure the data file exists at: " << data_path << std::endl;
-            std::cerr << "  Or set data_path to point to your data file" << std::endl;
-            return 1;
-        }
-        
-        // 3. Define feature plan and connections (matching Python)
+        // 2. Define feature plan and connections (matching Python)
         std::map<std::string, std::vector<std::string>> features = {
             {"L0_1", {"mv101", "fit101", "lit101"}},
             {"L0_2", {"lit101", "fit201", "p101"}},
@@ -178,52 +122,36 @@ int main(int argc, char* argv[]) {
             {"L3_1", {"L2_1", "L2_2", "L2_3"}}
         };
 
-        // Filter columns to only include features used in feature plan (like Python)
+        // Collect only the feature columns needed by the feature plan
         std::set<std::string> required_features;
         for (const auto& [group_name, feature_list] : features) {
             for (const auto& feature : feature_list) {
                 required_features.insert(feature);
             }
         }
-        
-        std::cout << "  Filtering to " << required_features.size() << " required features..." << std::endl;
-        std::cout << "  Data range: min_data=" << min_data << ", max_data=" << max_data 
-                  << ", res_data=" << res_data << std::endl;
-        std::cout << "  Expected rows: " << ((max_data - min_data) / res_data) << std::endl;
-        
-        // Filter and slice data according to config (same indexing as Python:
-        // data.iloc[min_data:max_data:res], y = data['label'].values)
-        std::vector<std::map<std::string, double>> data;
-        std::vector<int> labels;
-        for (int i = min_data; i < std::min(static_cast<int>(full_data.size()), max_data); i += res_data) {
-            if (i < static_cast<int>(full_data.size())) {
-                std::map<std::string, double> filtered_row;
-                const auto& original_row = full_data[i];
 
-                // Only include columns that are in required_features
-                for (const auto& feature : required_features) {
-                    if (original_row.find(feature) != original_row.end()) {
-                        filtered_row[feature] = original_row.at(feature);
-                    }
-                }
-
-                if (!filtered_row.empty()) {
-                    data.push_back(filtered_row);
-                    int y = 0;
-                    if (original_row.find("label") != original_row.end()) {
-                        y = static_cast<int>(std::lround(original_row.at("label")));
-                    } else if (original_row.find("Label") != original_row.end()) {
-                        y = static_cast<int>(std::lround(original_row.at("Label")));
-                    }
-                    labels.push_back(y);
-                }
+        // 3. Open data file for streaming (one row at a time — avoids loading full file)
+        std::cout << "\n[Step 3] Opening data file for streaming..." << std::endl;
+        string data_path = "data/swat_dataset.parquet";
+        std::unique_ptr<RowStreamer> streamer;
+        try {
+            streamer = makeStreamer(data_path, min_data, max_data, res_data, required_features);
+        } catch (const std::exception& e1) {
+            // Parquet failed — try CSV fallback
+            std::string csv_path = data_path.substr(0, data_path.rfind('.')) + ".csv";
+            try {
+                streamer = makeStreamer(csv_path, min_data, max_data, res_data, required_features);
+            } catch (const std::exception& e2) {
+                std::cerr << "ERROR opening data: " << e1.what() << "\n"
+                          << "  CSV fallback also failed: " << e2.what() << std::endl;
+                return 1;
             }
         }
-        
-        std::cout << "  ✓ Processed " << data.size() << " rows (sliced from " << full_data.size() 
-                  << ", filtered to " << required_features.size() << " features)" << std::endl;
-        
-        std::cout << "\n[Step 3] Setting up feature plan and connections..." << std::endl;
+        std::cout << "  ✓ Streamer ready: " << streamer->totalRows() << " rows to process"
+                  << " (range " << min_data << "–" << max_data << ", stride " << res_data << ")"
+                  << ", " << required_features.size() << " features" << std::endl;
+
+        std::cout << "\n[Step 4] Setting up feature plan and connections..." << std::endl;
         
         // Build layer dictionary
         auto layer_dict = getLayerDict(features, connections);
@@ -231,12 +159,12 @@ int main(int argc, char* argv[]) {
         std::cout << "  ✓ Created " << features.size() << " feature groups" << std::endl;
         std::cout << "  ✓ Created " << connections.size() << " connections" << std::endl;
         std::cout << "  ✓ Built " << layer_dict.size() << " layers" << std::endl;
-        
-        // 4. Create and build HTMPyramid
-        std::cout << "\n[Step 4] Creating HTMPyramid..." << std::endl;
-        
+
+        // 5. Create and build HTMPyramid
+        std::cout << "\n[Step 5] Creating HTMPyramid..." << std::endl;
+
         HTMPyramid pyramid(
-            data,
+            *streamer,
             features_config,
             model_config,
             features,
@@ -251,20 +179,21 @@ int main(int argc, char* argv[]) {
         );
         
         std::cout << "  ✓ HTMPyramid created" << std::endl;
-        
-        // 5. Build the pyramid
-        std::cout << "\n[Step 5] Building pyramid structure..." << std::endl;
+
+        // 6. Build the pyramid
+        std::cout << "\n[Step 6] Building pyramid structure..." << std::endl;
         pyramid.build();
         std::cout << "  ✓ Pyramid built" << std::endl;
-        
-        // 6. Run the model
-        std::cout << "\n[Step 6] Running model..." << std::endl;
+
+        // 7. Run the model
+        std::cout << "\n[Step 7] Running model..." << std::endl;
         pyramid.run();
         std::cout << "  ✓ Model run complete" << std::endl;
-        
-        // 7. Get results
-        std::cout << "\n[Step 7] Collecting results..." << std::endl;
+
+        // 8. Get results
+        std::cout << "\n[Step 8] Collecting results..." << std::endl;
         auto scores = pyramid.getScores();
+        auto labels = pyramid.getLabels();
         std::cout << "  ✓ Collected " << scores.size() << " anomaly scores" << std::endl;
         
         // Print some statistics
@@ -285,8 +214,8 @@ int main(int argc, char* argv[]) {
             std::cout << "    Max: " << max_score << std::endl;
         }
         
-        // 8. Calculate metrics with grid search (ground truth = dataset label column)
-        std::cout << "\n[Step 8] Calculating metrics with grid search..." << std::endl;
+        // 9. Calculate metrics with grid search (ground truth = dataset label column)
+        std::cout << "\n[Step 9] Calculating metrics with grid search..." << std::endl;
 
         if (labels.size() != scores.size()) {
             std::cerr << "ERROR: label count (" << labels.size()
@@ -336,8 +265,8 @@ int main(int argc, char* argv[]) {
         std::string metrics_output = metrics_stream.str();
         std::cout << metrics_output;
         
-        // 9. Save results
-        std::cout << "\n[Step 9] Saving results..." << std::endl;
+        // 10. Save results
+        std::cout << "\n[Step 10] Saving results..." << std::endl;
         
         // Generate timestamped filename
         auto now = std::chrono::system_clock::now();

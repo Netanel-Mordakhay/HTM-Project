@@ -13,7 +13,7 @@ namespace htm_swat {
 
 using namespace htm;
 
-HTMPyramid::HTMPyramid(const std::vector<std::map<std::string, double>>& data,
+HTMPyramid::HTMPyramid(RowStreamer& streamer,
                        const std::map<std::string, std::map<std::string, std::string>>& features_config,
                        const std::map<std::string, std::map<std::string, std::string>>& model_config,
                        const std::map<std::string, std::vector<std::string>>& feature_plan,
@@ -25,7 +25,7 @@ HTMPyramid::HTMPyramid(const std::vector<std::map<std::string, double>>& data,
                        bool anomaly_score,
                        const std::vector<int>& max_pool,
                        int learn_period)
-    : data_(data),
+    : row_streamer_(&streamer),
       features_config_(features_config),
       model_config_(model_config),
       feature_plan_(feature_plan),
@@ -241,12 +241,17 @@ std::vector<UInt> HTMPyramid::getInputDims(const std::string& node_name, int lay
 }
 
 void HTMPyramid::run() {
-    std::cout << "Running model on " << data_.size() << " rows..." << std::endl;
+    size_t total = row_streamer_->totalRows();
+    std::cout << "Running model on " << total << " rows..." << std::endl;
     scores_.clear();
-    scores_.reserve(data_.size());
-    
-    for (size_t row_idx = 0; row_idx < data_.size(); row_idx++) {
-        const auto& row = data_[row_idx];
+    scores_.reserve(total);
+    labels_.clear();
+    labels_.reserve(total);
+
+    size_t row_idx = 0;
+    while (row_streamer_->hasNext()) {
+        auto row = row_streamer_->nextRow();
+        labels_.push_back(row_streamer_->lastLabel());
         
         // Encode row using DataStreamer (get merged SDRs for L0)
         auto encoded_row = data_streamer_->encodeRowMerged(row);
@@ -339,8 +344,9 @@ void HTMPyramid::run() {
         if ((row_idx + 1) % 1000 == 0) {
             std::cout << "  Processed " << (row_idx + 1) << " rows..." << std::endl;
         }
+        row_idx++;
     }
-    
+
     std::cout << "Done running model" << std::endl;
 }
 

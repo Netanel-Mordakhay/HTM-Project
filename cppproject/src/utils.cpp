@@ -460,5 +460,194 @@ GridSearchResult findBestScore(const std::vector<float>& predictions,
     return result;
 }
 
+// ---------------------------------------------------------------------------
+// RowStreamer implementations
+// ---------------------------------------------------------------------------
+
+class CSVRowStreamer : public RowStreamer {
+public:
+    CSVRowStreamer(const std::string& path, int min_row, int max_row, int stride,
+                  const std::set<std::string>& required_features)
+        : required_features_(required_features), max_row_(max_row), stride_(stride),
+          current_file_row_(min_row), last_label_(0), total_rows_(0) {
+
+        file_.open(path);
+        if (!file_.is_open()) throw std::runtime_error("Cannot open CSV file: " + path);
+
+        // Parse header
+        std::string line;
+        if (!std::getline(file_, line)) throw std::runtime_error("Empty CSV file: " + path);
+        std::stringstream ss(line);
+        std::string col;
+        while (std::getline(ss, col, ',')) {
+            col.erase(0, col.find_first_not_of(" \t\r\n"));
+            col.erase(col.find_last_not_of(" \t\r\n") + 1);
+            headers_.push_back(col);
+        }
+
+        // Skip to min_row
+        for (int i = 0; i < min_row; i++) {
+            if (!std::getline(file_, line)) break;
+        }
+
+        for (int i = min_row; i < max_row; i += stride) total_rows_++;
+    }
+
+    bool hasNext() const override {
+        return current_file_row_ < max_row_ && file_.good() && !file_.eof();
+    }
+
+    std::map<std::string, double> nextRow() override {
+        std::string line;
+        std::getline(file_, line);
+
+        std::map<std::string, double> row;
+        std::stringstream ss(line);
+        std::string value;
+        size_t col_idx = 0;
+        last_label_ = 0;
+
+        while (std::getline(ss, value, ',') && col_idx < headers_.size()) {
+            value.erase(0, value.find_first_not_of(" \t\r\n"));
+            value.erase(value.find_last_not_of(" \t\r\n") + 1);
+
+            const std::string& col_name = headers_[col_idx];
+            double num_val = 0.0;
+            try { num_val = std::stod(value); } catch (...) {}
+
+            if (col_name == "label" || col_name == "Label") {
+                last_label_ = static_cast<int>(std::lround(num_val));
+            }
+            if (required_features_.count(col_name)) {
+                row[col_name] = num_val;
+            }
+            col_idx++;
+        }
+
+        current_file_row_ += stride_;
+        // Skip stride-1 rows to land on the next sampled index
+        for (int i = 1; i < stride_; i++) std::getline(file_, line);
+
+        return row;
+    }
+
+    int lastLabel() const override { return last_label_; }
+    size_t totalRows() const override { return total_rows_; }
+
+private:
+    std::ifstream file_;
+    std::vector<std::string> headers_;
+    std::set<std::string> required_features_;
+    int current_file_row_;
+    int max_row_;
+    int stride_;
+    int last_label_;
+    size_t total_rows_;
+};
+
+#ifdef USE_ARROW
+class ParquetRowStreamer : public RowStreamer {
+public:
+    ParquetRowStreamer(const std::string& path, int min_row, int max_row, int stride,
+                      const std::set<std::string>& required_features)
+        : required_features_(required_features), stride_(stride),
+          current_row_(min_row), last_label_(0), total_rows_(0), label_col_idx_(-1) {
+
+        // Load the Arrow table (columnar — ~10x more memory-efficient than vector<map>).
+        // Row extraction happens lazily during run(), one row at a time.
+        auto infile = *arrow::io::ReadableFile::Open(path, arrow::default_memory_pool());
+        auto reader = *parquet::arrow::OpenFile(infile, arrow::default_memory_pool());
+        if (!reader->ReadTable(&table_).ok())
+            throw std::runtime_error("Failed to read parquet table: " + path);
+
+        for (int i = 0; i < table_->num_columns(); i++) {
+            column_names_.push_back(table_->schema()->field(i)->name());
+            if (column_names_.back() == "label" || column_names_.back() == "Label")
+                label_col_idx_ = i;
+        }
+
+        int actual_max = std::min(max_row, (int)table_->num_rows());
+        max_row_ = actual_max;
+        for (int i = min_row; i < actual_max; i += stride) total_rows_++;
+    }
+
+    bool hasNext() const override { return current_row_ < max_row_; }
+
+    std::map<std::string, double> nextRow() override {
+        std::map<std::string, double> row;
+        last_label_ = 0;
+
+        for (int col = 0; col < (int)column_names_.size(); col++) {
+            const std::string& col_name = column_names_[col];
+            bool is_label   = (col == label_col_idx_);
+            bool is_required = required_features_.count(col_name) > 0;
+            if (!is_required && !is_label) continue;
+
+            double value = extractValue(col, current_row_);
+            if (is_label)    last_label_ = static_cast<int>(std::lround(value));
+            if (is_required) row[col_name] = value;
+        }
+
+        current_row_ += stride_;
+        return row;
+    }
+
+    int lastLabel() const override { return last_label_; }
+    size_t totalRows() const override { return total_rows_; }
+
+private:
+    double extractValue(int col_idx, int64_t row_idx) {
+        auto column = table_->column(col_idx);
+        int64_t offset = 0;
+        for (int c = 0; c < column->num_chunks(); c++) {
+            auto chunk = column->chunk(c);
+            if (row_idx < offset + chunk->length()) {
+                int64_t local = row_idx - offset;
+                switch (column->type()->id()) {
+                    case arrow::Type::DOUBLE:
+                        return std::static_pointer_cast<arrow::DoubleArray>(chunk)->Value(local);
+                    case arrow::Type::FLOAT:
+                        return static_cast<double>(std::static_pointer_cast<arrow::FloatArray>(chunk)->Value(local));
+                    case arrow::Type::INT64:
+                        return static_cast<double>(std::static_pointer_cast<arrow::Int64Array>(chunk)->Value(local));
+                    case arrow::Type::INT32:
+                        return static_cast<double>(std::static_pointer_cast<arrow::Int32Array>(chunk)->Value(local));
+                    case arrow::Type::BOOL:
+                        return std::static_pointer_cast<arrow::BooleanArray>(chunk)->Value(local) ? 1.0 : 0.0;
+                    default: return 0.0;
+                }
+            }
+            offset += chunk->length();
+        }
+        return 0.0;
+    }
+
+    std::shared_ptr<arrow::Table> table_;
+    std::vector<std::string> column_names_;
+    std::set<std::string> required_features_;
+    int current_row_;
+    int max_row_;
+    int stride_;
+    int last_label_;
+    int label_col_idx_;
+    size_t total_rows_;
+};
+#endif // USE_ARROW
+
+std::unique_ptr<RowStreamer> makeStreamer(
+    const std::string& path, int min_row, int max_row, int stride,
+    const std::set<std::string>& required_features) {
+
+    if (path.find(".parquet") != std::string::npos) {
+#ifdef USE_ARROW
+        return std::make_unique<ParquetRowStreamer>(path, min_row, max_row, stride, required_features);
+#else
+        throw std::runtime_error(
+            "Parquet support not compiled. Install Apache Arrow or convert to CSV.");
+#endif
+    }
+    return std::make_unique<CSVRowStreamer>(path, min_row, max_row, stride, required_features);
+}
+
 } // namespace htm_swat
 

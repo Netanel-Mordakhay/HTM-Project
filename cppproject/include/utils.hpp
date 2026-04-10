@@ -5,6 +5,8 @@
 #include <vector>
 #include <string>
 #include <map>
+#include <set>
+#include <memory>
 #include <htm/types/Sdr.hpp>
 
 namespace htm_swat {
@@ -80,6 +82,27 @@ GridSearchResult findBestScore(const std::vector<float>& predictions,
 std::map<int, std::vector<std::string>> getLayerDict(
     const std::map<std::string, std::vector<std::string>>& features,
     const std::map<std::string, std::vector<std::string>>& connections);
+
+// RowStreamer: streams one filtered row at a time from a data file.
+// Avoids loading the entire dataset into memory — only one row is in RAM at a time.
+class RowStreamer {
+public:
+    virtual ~RowStreamer() = default;
+    virtual bool hasNext() const = 0;
+    // Returns the next filtered row (only required_features columns).
+    virtual std::map<std::string, double> nextRow() = 0;
+    // Label of the row returned by the last nextRow() call.
+    virtual int lastLabel() const = 0;
+    // Total number of rows this streamer will produce.
+    virtual size_t totalRows() const = 0;
+};
+
+// Factory: opens path and returns the appropriate streamer.
+// Supports .parquet (requires USE_ARROW) and .csv files.
+std::unique_ptr<RowStreamer> makeStreamer(
+    const std::string& path,
+    int min_row, int max_row, int stride,
+    const std::set<std::string>& required_features);
 
 } // namespace htm_swat
 
