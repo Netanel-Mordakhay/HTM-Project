@@ -1,0 +1,211 @@
+features:
+
+  timestamp:
+    type: timestamp
+    weight: 1.0
+    format: " %d/%m/%Y %I:%M:%S %p"
+    timeOfDay:
+      - 21  #30
+      - 9.49  #1
+    weekend: 0  #21
+    season: 0
+    dayOfWeek: 0
+    custom: 0
+    holiday: 0
+
+  fit101:
+    type: float
+    weight: 1.
+    resolution: 0.1
+
+  lit101:
+    type: float
+    weight: 1.0
+    resolution: 1
+
+  mv101:
+    type: cat
+    weight: 1.0
+
+  p101:
+    type: cat
+    weight: 1
+
+  ait201:
+    type: float
+    weight: 1.0
+    resolution: 0.2
+
+  ait202:
+    type: float
+    weight: 1.0
+    resolution: 0.01
+
+  ait203:
+    type: float
+    weight: 1.0
+    resolution: 1
+
+  fit201:
+    type: float
+    weight: 1.0
+    resolution: 0.1
+
+  mv201:
+    type: cat
+    weight: 1.0
+
+  p201:
+    type: cat
+    weight: 1.0
+
+  p203:
+    type: cat
+    weight: 1.0
+
+  p205:
+    type: cat
+    weight: 1.0
+
+  dpit301:
+    type: float
+    weight: 1.0
+    resolution: 1
+
+  fit301:
+    type: float
+    weight: 1.0
+    resolution: 0.1
+
+  lit301:
+    type: float
+    weight: 1.0
+    resolution: 1.
+
+  mv301:
+    type: cat
+    weight: 1.0
+
+  mv302:
+    type: cat
+    weight: 1.0
+
+  mv303:
+    type: cat
+    weight: 1.0
+
+  mv304:
+    type: cat
+    weight: 1.0
+
+  p301:
+    type: cat
+    weight: 1.0
+
+  p302:
+    type: cat
+    weight: 1.0
+
+  ait401:
+    type: float
+    weight: 1.0
+    resolution: 0.01
+
+  ait402:
+    type: float
+    weight: 1.0
+    resolution: 0.1
+
+  fit401:
+    type: float
+    weight: 1.0
+    resolution: 0.1
+
+  lit401:
+    type: float
+    weight: 1.0
+    resolution: 1.
+
+  p402:
+    type: cat
+    weight: 1.0
+
+  p403:
+    type: cat
+    weight: 1.0
+
+#  p404:
+#    type: cat
+#    weight: 1.0
+
+  uv401:
+    type: cat
+    weight: 1.0
+
+  ait501:
+    type: float
+    weight: 1.0
+    resolution: 0.005
+
+  ait502:
+    type: float
+    weight: 1.0
+    resolution: 0.1
+
+  ait503:
+    type: float
+    weight: 1.0
+    resolution: 0.5
+
+  ait504:
+    type: float
+    weight: 1.0
+    resolution: 0.01
+
+  fit501:
+    type: float
+    weight: 1.0
+    resolution: 0.1
+
+  fit502:
+    type: float
+    weight: 1.0
+    resolution: 0.1
+
+  fit503:
+    type: float
+    weight: 1.0
+    resolution: 0.1
+
+  fit504:
+    type: float
+    weight: 1.0
+    resolution: 0.1
+
+  p501:
+    type: cat
+    weight: 1.0
+
+  pit501:
+    type: float
+    weight: 1.0
+    resolution: 0.5
+
+  pit502:
+    type: float
+    weight: 1.0
+    resolution: 0.5
+
+  pit503:
+    type: float
+    weight: 1.0
+    resolution: 0.5
+
+  fit601:
+    type: float
+    weight: 1.0
+    resolution: 0.1
+
+  p602:
+    type: cat
+    weight: 1.0

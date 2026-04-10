@@ -1,0 +1,39 @@
+source.pipeline.htm_stream_runner.run_stream()
+
+    1. Load —-> Config
+    2. Load —-> Batch Data
+    3. For Row in Batch Data
+        1. Generate —-> Stream Data
+        2. Store —-> Stream Data
+        3. Run —-> stream_to_htm()
+
+source.pipeline.htm_stream.stream_to_htm()
+
+    1. Load —-> Config
+    2. Load —-> Stream Data
+    3. Validate —-> Config
+    4. Get —-> mode
+	if 'features_minmax' not in Config:
+		mode = 'initializing'
+		if timestep < timesteps_stop-sampling:
+			mode = 'sampling'
+	else:
+		if 'timestep_initialized' not in Config:
+			mode = 'initializing'
+		else:
+			mode = 'running'
+
+    if mode == 'sampling':
+        5. Store —-> Stream Data
+    elif mode == 'initializing':
+        5. Build —-> Encoder Params
+            * Set --> Config['features_minmax']
+        6. Build —-> HTM model(s)
+            * Set --> Config['models_state']['timestep_inialized']
+        7. Store —-> HTM model(s)
+    else: (mode='running')
+        5. Load —-> HTM model(s)
+        6. Run —-> Stream Data thru HTM model(s)
+        7. Store —-> HTM outputs
+        8. Store —-> HTM models()
+    6/8/9. Store —-> Config

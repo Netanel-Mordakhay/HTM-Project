@@ -1,0 +1,12 @@
+scipy
+tqdm
+numba
+pandas
+PyYAML
+matplotlib
+pyarrow
+jupyter
+optuna
+optuna-dashboard
+numpy>=2.0
+networkx>=3.2.1

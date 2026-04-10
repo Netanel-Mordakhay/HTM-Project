@@ -1,0 +1,45 @@
+general:
+  feature_merge_mode: u
+  htm_merge_mode: u
+  layer_inputs: 3
+  max_pool: 4
+  smooth_box_sizes: [3, 20, 2]
+  thresholds: [0.1, 1., 0.01]
+  grace_window: 3
+  seed: 69
+  learn_period: 5000
+
+
+encoders:
+  n: 750
+  w: 0.04
+
+
+models:
+  sp:
+    columnDimensions: [1792]
+    potentialPct: 0.725
+    potentialRadius: 0.1
+    localAreaDensity: 0.035
+    globalInhibition: yes
+    boostStrength: [2.7, 0.3, 3]
+    stimulusThreshold: 12
+    synPermConnected: 0.4
+    synPermActiveInc: 0.00010223694233638143
+    synPermInactiveDec: 0.00003832022851066854
+    wrapAround: no
+    minPctOverlapDutyCycle: 0.00005514265878873028
+    dutyCyclePeriod: 1100
+
+  tm:
+    cellsPerColumn: 3
+    minThreshold: 11
+    activationThreshold: 28
+    initialPerm: 0.22
+    maxSegmentsPerCell: 168
+    maxSynapsesPerSegment: 288
+    newSynapseCount: 48
+    permanenceConnected: 0.28
+    permanenceInc: 0.52
+    permanenceDec: 0.0379835335251272
+    predictedSegmentDecrement: 0.029158386581656988
