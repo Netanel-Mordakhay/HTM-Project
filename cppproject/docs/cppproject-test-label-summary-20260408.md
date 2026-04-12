@@ -1585,6 +1585,70 @@ Controls overall pipeline behavior, data windowing, and metric calculation.
 | `data_min/data_max` | `446000-946000` | Use 500K rows of dataset (out of 946K total) |
 | `data_res` | `5` | Evaluation resolution: process every 5th row |
 
+##### **Active vs. Predictive Cells**
+
+The `use_predictive` setting controls which Temporal Memory cell states are used for anomaly detection:
+
+**Active Cells:**
+- Fire/activate in response to the **current input**
+- Represent what the system is **seeing right now**
+- Always exist (timestep T)
+
+**Predictive Cells:**
+- Fire based on **learned sequences from previous timesteps**
+- Represent what the system **expected to see**
+- Predicted one timestep ahead (timestep T-1)
+
+**Anomaly Detection Strategy:**
+
+With `use_predictive: no` (your config):
+- Only uses **active cells** for anomaly scoring
+- **High anomaly** = many cells bursting (input doesn't match learned patterns)
+- **Low anomaly** = few cells active (input matches learned patterns)
+- **Rationale:** Burst magnitude alone is simpler but less precise
+
+With `use_predictive: yes` (alternative):
+- Compares **predictive cells vs. active cells**
+- **High anomaly** = active cells ≠ predictive cells (unexpected input)
+- **Low anomaly** = active cells = predictive cells (expected input)
+- **Rationale:** Directly measures prediction error, more precise
+
+**Your Config:** Relies purely on burst magnitude to detect anomalies.
+
+##### **Threshold Tuning (`thresholds` and `threshold_delta`)**
+
+These parameters control the **automated threshold search** during model evaluation to find the best anomaly detection cutoff.
+
+**`thresholds: [0.1, 0.95, 0.01]`** — Define threshold search range:
+- **0.1** = Start testing at 0.1 (minimum threshold)
+- **0.95** = End testing at 0.95 (maximum threshold)
+- **0.01** = Step size (test 0.1, 0.11, 0.12, ..., 0.94, 0.95)
+- **Result:** Tests **86 different thresholds** to find best F1 score
+
+**`threshold_delta: 0.05`** — Confidence margin for predictions:
+- Not used in your config's primary evaluation
+- Used for adaptive threshold adjustment in some contexts
+- Represents ±5% confidence window around predictions
+
+**How It Works:**
+
+For each threshold tested (0.1 → 0.95 by 0.01 steps):
+1. Classify anomalies: anomaly_score ≥ threshold → anomaly
+2. Calculate metrics: precision, recall, F1
+3. Track which threshold gives best F1
+4. Report both: **Best F1** (optimal single threshold) and **Average F1** (overall performance)
+
+**Example (your results):**
+- Tested 86 thresholds
+- **Best F1 = 0.4478** at threshold = 0.97 (most selective, high precision)
+- **Average F1 = 0.2541** (middle-ground across all thresholds)
+- Implication: Model is threshold-sensitive; performance varies significantly based on cutoff choice
+
+**Optimization Strategy:**
+- If Best F1 >> Average F1 → Threshold-sensitive, find the "sweet spot"
+- If Best F1 ≈ Average F1 → Robust across ranges, model is stable
+- Your gap (0.4478 vs 0.2541) suggests significant sensitivity; model benefits from careful threshold selection
+
 ---
 
 #### **2. ENCODERS Settings**
