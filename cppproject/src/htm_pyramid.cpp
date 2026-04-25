@@ -1,12 +1,14 @@
 #include "htm_pyramid.hpp"
 #include "utils.hpp"
 #include "config.hpp"
+#include "experiment_utils.hpp"
 #include <iostream>
 #include <stdexcept>
 #include <algorithm>
 #include <iterator>
 #include <future>   // for std::async, std::future
 #include <vector>
+#include <chrono>
 #include <htm/encoders/RandomDistributedScalarEncoder.hpp>
 
 namespace htm_swat {
@@ -250,6 +252,7 @@ void HTMPyramid::run() {
 
     size_t row_idx = 0;
     while (row_streamer_->hasNext()) {
+        auto row_start = std::chrono::steady_clock::now();
         auto row = row_streamer_->nextRow();
         labels_.push_back(row_streamer_->lastLabel());
         
@@ -341,6 +344,10 @@ void HTMPyramid::run() {
             scores_.push_back(0.0f);
         }
         
+        auto row_end = std::chrono::steady_clock::now();
+        double row_ms = std::chrono::duration<double, std::milli>(row_end - row_start).count();
+        ExperimentMonitor::instance().recordRowLatency(row_ms);
+
         if ((row_idx + 1) % 1000 == 0) {
             std::cout << "  Processed " << (row_idx + 1) << " rows..." << std::endl;
         }

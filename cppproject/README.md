@@ -174,6 +174,93 @@ Run the image
 everytime you modify the code, rebuild the image:
 
 `cd /home/abed/final-project/HTM-Project/cppproject && cmake --build build --target htm_swat`
+## Experiment Tracking (branch: `batch-load-abed`)
+
+Every run automatically profiles itself and saves structured results. No extra flags needed — the profiling starts at launch and writes files when the run completes.
+
+### New Files Added
+
+| File | Purpose |
+|------|---------|
+| `include/experiment_utils.hpp` | `ExperimentMonitor` class declaration |
+| `src/experiment_utils.cpp` | Implementation: CPU/RAM sampler, latency recorder, JSON writers |
+
+`CMakeLists.txt` was updated to include both files in the build.
+
+### What Gets Measured
+
+**CPU & RAM** — a background thread reads `/proc/self/stat` (CPU ticks) and `/proc/self/status` (VmRSS) every 2 seconds throughout the entire run. Results are stored as a time series and summarized as min/avg/peak.
+
+**Timing events** — named checkpoints record elapsed time and delta from the previous checkpoint:
+
+| Event | What it marks |
+|-------|---------------|
+| `run_start` | Process launch |
+| `configs_loaded` | YAML config parsing done |
+| `data_load_complete` | Streamer ready, row count known |
+| `pyramid_built` | All 26 HTM modules constructed |
+| `pyramid_run_complete` | All rows processed |
+| `saving_results` | File I/O begins |
+
+**Per-row latency** — `htm_pyramid.cpp` wraps each row in the run loop with `std::chrono::steady_clock` and calls `ExperimentMonitor::instance().recordRowLatency(ms)`. Min, average, and peak latency are reported.
+
+### Output Files
+
+Each run creates a timestamped experiment folder alongside the existing CSV/TXT outputs:
+
+```
+results/
+├── anomaly_scores_<timestamp>.csv              # Score per row
+├── metrics/
+│   └── cpp_metrics_<timestamp>.txt            # Human-readable best/avg metrics
+└── experiments_<branch>_<timestamp>/
+    ├── model_efficiency_metrics.json           # CPU%, RAM MB, timing events, latency
+    ├── model_performance_metrics.json          # F1, precision, recall, accuracy, threshold
+    └── roc_thresholds.json                     # Full threshold sweep (101 points)
+```
+
+**`model_efficiency_metrics.json` structure:**
+```json
+{
+  "total_runtime_ms": 626154,
+  "timing_events": [ { "name": "...", "elapsed_ms": ..., "delta_ms": ... } ],
+  "cpu":     { "min": 4.87, "avg": 7.20, "peak": 11.49 },
+  "ram":     { "min": 1143.9, "avg": 1324.6, "peak": 1329.1 },
+  "latency": { "min_ms": 2.8, "avg_ms": 6.2, "peak_ms": 92.2, "count": 100000 },
+  "resource_samples": [ ... ]
+}
+```
+
+**`model_performance_metrics.json` structure:**
+```json
+{
+  "thresholds_tested": 101,
+  "best":    { "threshold": 0.97, "f1": 0.4478, "precision": 0.459, "recall": 0.437, "accuracy": 0.788 },
+  "average": { "f1": 0.254, "precision": 0.159, "recall": 0.857, "accuracy": 0.332 }
+}
+```
+
+### Branch-Aware Folder Naming
+
+The experiment folder name includes the git branch so runs from different branches are never mixed up:
+
+```
+results/experiments_batch-load-abed_20260425_144618_730/
+```
+
+Branch name is resolved at runtime in this priority order:
+1. `GIT_BRANCH` environment variable (set in `docker-compose.yml`)
+2. `.git/HEAD` file (works for local builds)
+3. Falls back to `"unknown"`
+
+`docker-compose.yml` has `GIT_BRANCH=batch-load-abed` pre-set. Update this value whenever you switch branches for Docker runs.
+
+### Changes to Existing Files
+
+- **`src/main.cpp`** — generates a single timestamp at startup shared across all output filenames; calls `monitor.start()`, adds timing events at each major step, calls `monitor.stop()` and writes all JSON files before exit.
+- **`src/htm_pyramid.cpp`** — added `#include "experiment_utils.hpp"` and per-row latency timing in the run loop.
+- **`docker-compose.yml`** — added `GIT_BRANCH=batch-load-abed` to the environment section.
+
 ## Troubleshooting
 
 **Docker build fails:**

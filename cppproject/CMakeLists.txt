@@ -157,6 +157,7 @@ set(SOURCES
     src/htm_pyramid.cpp
     src/encoder.cpp
     src/utils.cpp
+    src/experiment_utils.cpp
 )
 
 # Header files (for IDE support)
@@ -167,6 +168,7 @@ set(HEADERS
     include/config.hpp
     include/data_streamer.hpp
     include/utils.hpp
+    include/experiment_utils.hpp
 )
 
 # ============================================================================

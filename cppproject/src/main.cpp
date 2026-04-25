@@ -15,6 +15,7 @@
 #include "data_streamer.hpp"
 #include "htm_pyramid.hpp"
 #include "utils.hpp"
+#include "experiment_utils.hpp"
 
 // HTM core includes
 #include <htm/types/Sdr.hpp>
@@ -30,6 +31,18 @@ int main(int argc, char* argv[]) {
     std::cout << "========================================" << std::endl;
     std::cout << std::endl;
     
+    // Generate run timestamp once and reuse throughout
+    auto now_ts = std::chrono::system_clock::now();
+    auto time_ts = std::chrono::system_clock::to_time_t(now_ts);
+    auto ms_ts = std::chrono::duration_cast<std::chrono::milliseconds>(now_ts.time_since_epoch()) % 1000;
+    std::stringstream ts_ss;
+    ts_ss << std::put_time(std::localtime(&time_ts), "%Y%m%d_%H%M%S");
+    ts_ss << "_" << std::setfill('0') << std::setw(3) << ms_ts.count();
+    std::string timestamp_str = ts_ss.str();
+
+    auto& monitor = htm_swat::ExperimentMonitor::instance();
+    monitor.start(timestamp_str);
+
     try {
         // 1. Load configs from YAML
         std::cout << "[Step 1] Loading configs from YAML..." << std::endl;
@@ -53,7 +66,8 @@ int main(int argc, char* argv[]) {
         }
         
         std::cout << "  ✓ Loaded model config" << std::endl;
-        
+        monitor.addTimingEvent("configs_loaded");
+
         // Extract general config
         UInt seed = 69;
         int learn_period = 5000;
@@ -150,6 +164,7 @@ int main(int argc, char* argv[]) {
         std::cout << "  ✓ Streamer ready: " << streamer->totalRows() << " rows to process"
                   << " (range " << min_data << "–" << max_data << ", stride " << res_data << ")"
                   << ", " << required_features.size() << " features" << std::endl;
+        monitor.addTimingEvent("data_load_complete");
 
         std::cout << "\n[Step 4] Setting up feature plan and connections..." << std::endl;
         
@@ -184,11 +199,13 @@ int main(int argc, char* argv[]) {
         std::cout << "\n[Step 6] Building pyramid structure..." << std::endl;
         pyramid.build();
         std::cout << "  ✓ Pyramid built" << std::endl;
+        monitor.addTimingEvent("pyramid_built");
 
         // 7. Run the model
         std::cout << "\n[Step 7] Running model..." << std::endl;
         pyramid.run();
         std::cout << "  ✓ Model run complete" << std::endl;
+        monitor.addTimingEvent("pyramid_run_complete");
 
         // 8. Get results
         std::cout << "\n[Step 8] Collecting results..." << std::endl;
@@ -267,23 +284,18 @@ int main(int argc, char* argv[]) {
         
         // 10. Save results
         std::cout << "\n[Step 10] Saving results..." << std::endl;
-        
-        // Generate timestamped filename
-        auto now = std::chrono::system_clock::now();
-        auto time = std::chrono::system_clock::to_time_t(now);
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
-        
-        std::stringstream ss;
-        ss << std::put_time(std::localtime(&time), "%Y%m%d_%H%M%S");
-        ss << "_" << std::setfill('0') << std::setw(3) << ms.count();
-        std::string timestamp_str = ss.str();
-        
+        monitor.addTimingEvent("saving_results");
+
+        // Use the run timestamp (same as experiment monitor run_name)
+        std::string exp_dir = monitor.experimentDir();
+        std::filesystem::create_directories(exp_dir);
+
         // Save anomaly scores
         std::string timestamp_filename = "results/anomaly_scores_" + timestamp_str + ".csv";
         saveResults(timestamp_filename, scores);
         std::cout << "  ✓ Results saved to " << timestamp_filename << std::endl;
-        
-        // Save metrics summary
+
+        // Save metrics summary (human-readable)
         std::filesystem::create_directories("results/metrics");
         std::string metrics_filename = "results/metrics/cpp_metrics_" + timestamp_str + ".txt";
         std::ofstream metrics_file(metrics_filename);
@@ -294,6 +306,30 @@ int main(int argc, char* argv[]) {
         } else {
             std::cerr << "  ✗ Failed to write metrics file: " << metrics_filename << std::endl;
         }
+
+        // Save ROC thresholds JSON
+        monitor.writeRocThresholds(exp_dir + "/roc_thresholds.json", thresholds, scores, labels);
+
+        // Save performance metrics JSON
+        monitor.writePerformanceMetrics(
+            exp_dir + "/model_performance_metrics.json",
+            timestamp_str,
+            grid_result.thresholds_tested,
+            grid_result.best.best_threshold,
+            grid_result.best.score,
+            grid_result.best.metrics.precision,
+            grid_result.best.metrics.recall,
+            grid_result.best.metrics.accuracy,
+            grid_result.average_metrics.f1,
+            grid_result.average_metrics.precision,
+            grid_result.average_metrics.recall,
+            grid_result.average_metrics.accuracy
+        );
+
+        // Stop monitor and write efficiency metrics (CPU/RAM/timing)
+        monitor.stop();
+        monitor.writeEfficiencyMetrics(exp_dir + "/model_efficiency_metrics.json");
+        std::cout << "  ✓ Experiment metrics saved to " << exp_dir << "/" << std::endl;
         
         std::cout << "\n========================================" << std::endl;
         std::cout << "HTM SWAT: COMPLETE" << std::endl;
