@@ -392,7 +392,7 @@ std::map<std::string, SDR> HTMPyramid::runLayer(const std::map<std::string, SDR>
     // Limit the number of worker threads per layer.
     // This can be tuned; 4 is a reasonable default comparable
     // to a small process pool in the Python implementation.
-    const std::size_t max_threads = 4;
+    const std::size_t max_threads = 1;
     const std::size_t num_threads =
         std::min<std::size_t>(max_threads, node_names.size());
 
