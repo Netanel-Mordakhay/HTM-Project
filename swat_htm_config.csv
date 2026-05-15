@@ -1,0 +1,14 @@
+Parameter,Value
+Encoder n / w (sparsity),2304 / 3.5%
+SP columnDimensions,1664
+SP potentialPct / potentialRadius,0.24 / 1.0 (global)
+SP localAreaDensity / boostStrength,0.019 / [1.2, 1.2, 1.2, 1.2]
+SP stimulusThreshold,"[32, 24, 20, 12]"
+SP synPermConnected / ActiveInc / InactiveDec,0.5 / [3.49e-3, 1.28e-4, 6.37e-3, 3.19e-2] / [5.23e-5, 1.26e-3, 8.52e-5, 7.88e-6]
+SP dutyCyclePeriod,"[2000, 2450, 2000, 2300]"
+TM cellsPerColumn / minThreshold,16 / 16
+TM activationThreshold,"[26, 30, 28, 32]"
+TM initialPerm / permanenceConnected,0.21 / 0.60
+TM permanenceInc / permanenceDec,"[0.075, 0.075, 0.075, 0.175] / [7.26e-4, 4.20e-4, 7.00e-4, 7.00e-5]"
+TM newSynapseCount / predictedSegmentDecrement,"[32, 32, 32, 32] / [0.005, 0.005, 0.005, 0.005]"
+TM maxSegmentsPerCell / maxSynapsesPerSegment,"[128, 64, 160, 112] / [480, 224, 224, 224]"
