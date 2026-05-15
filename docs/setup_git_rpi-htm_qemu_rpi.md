@@ -134,5 +134,12 @@ make -j1
 
 ```
 
+### RUN CPP ON QEMU RPi
+
+Since Docker does not work on QEMU, we use the local build and run.
+```bash
+cd ~/HTM-Project/cppproject
+./build/htm_swat
+```
 
    - Press `Ctrl + A`, then `X` to exit QEMU
