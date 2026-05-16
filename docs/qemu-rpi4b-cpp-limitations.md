@@ -25,7 +25,7 @@ The process is terminated by the Linux kernel's OOM killer immediately after pri
 
 ## Root Cause: `ParquetRowStreamer` Loads the Entire Dataset Into RAM
 
-The data loading is handled by `ParquetRowStreamer` in `src/utils.cpp`. Despite the name "streamer", the constructor calls Apache Arrow's `ReadTable()` which loads the **entire parquet file** into a single in-memory Arrow Table before any row-by-row processing begins:
+The data loading is handled by `ParquetRowStreamer` in [src/utils.cpp](../cppproject/src/utils.cpp). Despite the name "streamer", the constructor calls Apache Arrow's `ReadTable()` which loads the **entire parquet file** into a single in-memory Arrow Table before any row-by-row processing begins:
 
 ```cpp
 // utils.cpp — ParquetRowStreamer constructor
@@ -56,7 +56,7 @@ unable to get image 'cppproject-htm_swat': Cannot connect to the Docker daemon
 at unix:///var/run/docker.sock. Is the docker daemon running?
 ```
 
-This means neither the recommended Docker path nor the native binary path works on QEMU out of the box.
+This means neither the recommended Docker path nor the native binary path works on QEMU.
 
 ---
 
@@ -79,7 +79,7 @@ However, the parquet file opens and reads successfully — the process is not ki
 
 ## The CSV Streamer Is Truly Row-by-Row
 
-`CSVRowStreamer` (also in `src/utils.cpp`) holds no full-file buffer — it keeps an open `std::ifstream` and reads one line per `nextRow()` call. Its memory footprint is constant regardless of dataset size.
+`CSVRowStreamer` (also in [src/utils.cpp](../cppproject/src/utils.cpp)) holds no full-file buffer — it keeps an open `std::ifstream` and reads one line per `nextRow()` call. Its memory footprint is constant regardless of dataset size.
 
 The parquet format offers no equivalent path in the current code: `ParquetRowStreamer` must call `ReadTable()` upfront or the Arrow row-group API must be used instead.
 
@@ -87,11 +87,13 @@ The parquet format offers no equivalent path in the current code: `ParquetRowStr
 
 ## Workaround (No Code Change)
 
-Convert the parquet file to CSV **on the host machine** (not on the Pi), then rename the parquet file so the code falls through to the CSV fallback.
+Convert the parquet file to CSV **on the host machine** (not on the Pi), then copy it over. The program will fail to open the `.parquet` path... 
+
+Wait — as noted above, the file opens fine, so the fallback is not triggered by a missing file. Instead, **rename or remove the parquet file** on the Pi so the open fails and the code falls through to CSV:
 
 **On the host machine:**
 ```bash
-cd /path/to/HTM-Project/cppproject/data
+cd /home/abed/final-project/HTM-Project/cppproject/data
 
 # Install dependencies if needed
 pip install pandas pyarrow
