@@ -117,6 +117,7 @@ make -j$(nproc)
 For slower build, as not to overuse RAM:
 - Fix 1 — Add Swap (Quickest, no restart needed)
 
+*Run this once on QEMU device*
 ```bash
 Run this inside your QEMU VM before retrying the build:
 bash# Create a 2GB swapfile
