@@ -5,13 +5,85 @@
 #include <stdexcept>
 #include <algorithm>
 #include <iterator>
-#include <future>   // for std::async, std::future
+#include <future>
 #include <vector>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <queue>
+#include <functional>
 #include <htm/encoders/RandomDistributedScalarEncoder.hpp>
 
 namespace htm_swat {
 
 using namespace htm;
+
+// ---------------------------------------------------------------------------
+// ThreadPool
+//
+// Creates N worker threads once at construction. Tasks are submitted via
+// submit() and return a std::future for the result. Threads block on an
+// internal queue when idle and wake immediately when work is available.
+//
+// This replaces std::async(std::launch::async, ...) in runLayer(). The
+// std::async approach creates and destroys one OS thread per layer call
+// (~12 create/join cycles per row). On QEMU ARM emulation each cycle costs
+// ~1-5 ms, totalling 1,200-6,000 s of overhead across 100K rows.
+// With a pool the threads are created once and each submission costs only a
+// queue push + condition_variable notify (~1 µs).
+// ---------------------------------------------------------------------------
+class ThreadPool {
+public:
+    explicit ThreadPool(std::size_t num_threads) : stop_(false) {
+        for (std::size_t i = 0; i < num_threads; ++i) {
+            workers_.emplace_back([this] {
+                for (;;) {
+                    std::function<void()> task;
+                    {
+                        std::unique_lock<std::mutex> lock(mutex_);
+                        cv_.wait(lock, [this]{ return stop_ || !tasks_.empty(); });
+                        if (stop_ && tasks_.empty()) return;
+                        task = std::move(tasks_.front());
+                        tasks_.pop();
+                    }
+                    task();
+                }
+            });
+        }
+    }
+
+    ~ThreadPool() {
+        {
+            std::unique_lock<std::mutex> lock(mutex_);
+            stop_ = true;
+        }
+        cv_.notify_all();
+        for (auto& w : workers_) w.join();
+    }
+
+    // Submit a callable with no arguments; returns std::future<ReturnType>.
+    template<typename F>
+    auto submit(F&& f) -> std::future<std::invoke_result_t<F>> {
+        using R = std::invoke_result_t<F>;
+        auto task = std::make_shared<std::packaged_task<R()>>(std::forward<F>(f));
+        auto fut  = task->get_future();
+        {
+            std::unique_lock<std::mutex> lock(mutex_);
+            tasks_.emplace([task]{ (*task)(); });
+        }
+        cv_.notify_one();
+        return fut;
+    }
+
+    std::size_t size() const { return workers_.size(); }
+
+private:
+    std::vector<std::thread>           workers_;
+    std::queue<std::function<void()>>  tasks_;
+    std::mutex                         mutex_;
+    std::condition_variable            cv_;
+    bool                               stop_;
+};
 
 HTMPyramid::HTMPyramid(RowStreamer& streamer,
                        const std::map<std::string, std::map<std::string, std::string>>& features_config,
@@ -120,6 +192,13 @@ void HTMPyramid::build() {
     // Build modules layer by layer
     buildPyramid();
     
+    // Create thread pool — one thread per available vCPU, capped at 4.
+    // hardware_concurrency() returns 0 if the value is not computable.
+    const std::size_t hw        = std::thread::hardware_concurrency();
+    const std::size_t pool_size = (hw > 0) ? std::min(hw, std::size_t(4)) : 4;
+    thread_pool_ = std::make_unique<ThreadPool>(pool_size);
+    std::cout << "  Thread pool: " << pool_size << " persistent workers" << std::endl;
+
     std::cout << "Done building model" << std::endl;
 }
 
@@ -362,20 +441,12 @@ std::map<std::string, SDR> HTMPyramid::runLayer(const std::map<std::string, SDR>
     // ------------------------------------------------------------------
     // Multithreaded execution of modules within a single layer
     //
-    // Python uses multiprocessing (one worker per model key) in
-    // ModelPyramid._run_layer. Here we mirror that idea in C++ with
-    // threads: modules in the same layer are independent, so we can
-    // safely run their forward passes in parallel.
-    //
-    // For simplicity and control we:
-    //   - collect all node names in this layer,
-    //   - split them into contiguous chunks,
-    //   - run each chunk in a separate worker (up to 4 workers),
-    //   - each worker builds a local map<string, SDR>,
-    //   - finally we merge all local maps into 'results'.
-    //
-    // This keeps thread-safety simple (no shared mutation during
-    // forward) while giving us parallelism similar to the Python hive.
+    // Modules in the same layer are independent per timestep, so their
+    // forward passes can safely run in parallel. We partition the node
+    // list into up to 4 contiguous chunks and submit each chunk as a
+    // task to the persistent ThreadPool. The pool threads were created
+    // once in build() and are reused here on every call, avoiding the
+    // ~1-5 ms OS thread create/join cost that std::async would incur.
     // ------------------------------------------------------------------
 
     // Collect node names for deterministic partitioning
@@ -470,7 +541,9 @@ std::map<std::string, SDR> HTMPyramid::runLayer(const std::map<std::string, SDR>
         //           << " for nodes [" << start << ", " << end << ")" << std::endl;
         
         futures.emplace_back(
-            std::async(std::launch::async, worker, t, start, end));
+            thread_pool_->submit([&worker, t, start, end]{
+                return worker(t, start, end);
+            }));
     }
 
     // Collect results from all workers

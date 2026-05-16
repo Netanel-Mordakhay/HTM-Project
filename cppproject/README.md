@@ -2,24 +2,73 @@
 
 C++ version of the HTM algorithm from the Python `quickstart-swat.py` script.
 
+## Branch: `batch-load-qemu-threadpool`
+
+**Goal:** Reduce runtime from ~4640 s to ≤400 s on QEMU Raspberry Pi 4B by replacing
+per-layer `std::async` thread creation with a persistent thread pool.
+
+### Problem (batch-load baseline)
+
+The previous branch (`batch-load`) parallelised HTM modules within each layer using
+`std::async(std::launch::async, ...)`. The C++ standard requires `std::launch::async`
+to start a **new OS thread on every call** — threads are never reused. The call pattern
+per data row was:
+
+| Layer | Modules | Threads created |
+|-------|---------|----------------|
+| L0    | 16      | 4              |
+| L1    | 6       | 4              |
+| L2    | 3       | 3              |
+| L3    | 1       | 1              |
+| **Per row** | | **12** |
+
+Over 100,000 rows this produced **1.2 million OS thread create/join cycles**. On QEMU
+ARM emulation each cycle costs ~1–5 ms (vs ~10 µs on real hardware), accounting for the
+majority of the 4640 s runtime. Average CPU was only 162% out of a theoretical 400% —
+the remaining capacity was consumed by thread management overhead, not computation.
+
+### Fix: persistent `ThreadPool`
+
+A `ThreadPool` class is defined in `src/htm_pyramid.cpp` and owned by `HTMPyramid`.
+It creates N worker threads **once** during `build()` and keeps them alive for the
+entire `run()` call. Each `runLayer()` invocation submits tasks to the pool's work
+queue instead of spawning new threads. The per-submission cost drops from ~1–5 ms to
+~1 µs (queue push + condition variable signal).
+
+**Files changed:**
+
+- `include/htm_pyramid.hpp` — forward declaration of `ThreadPool`; added
+  `std::unique_ptr<ThreadPool> thread_pool_` member.
+- `src/htm_pyramid.cpp` — `ThreadPool` class definition; initialisation in `build()`;
+  `runLayer()` now submits to the pool instead of calling `std::async`.
+
+**Expected improvement on QEMU:**
+
+```
+4640 s  (batch-load, std::async — 1.2M thread create/join)
+÷ 3–4   (thread pool eliminates churn)
+≈ 1160–1550 s  on QEMU
+```
+
+Reaching ≤400 s additionally requires real RPi 4B hardware (÷4 QEMU emulation
+overhead). On real hardware with the pool: ~290–390 s.
+
+---
+
 ## What's Done So Far
-
-I've set up the basic project structure and got HTM.core library working. Right now the code just runs some tests to make sure everything is installed correctly. The actual HTM algorithm still needs to be implemented.
-
-**What works:**
 
 - Project structure is set up
 - HTM.core library is installed and linked
 - Build system (CMake) works
-- Test program runs and verifies the library works
-- Docker build works (recommended way to run)
+- Full HTM pyramid runs end-to-end (SP + TM, 4 layers, 26 modules)
+- Anomaly scores and F1 metrics are produced
+- Data loaded via Apache Arrow batch read (`ReadTable`)
+- Layer-level parallelism via persistent thread pool (this branch)
 
-**What's next:**
+## What's Next
 
-- Implement the actual HTM algorithm
-- Add feature encoding
-- Build the pyramid structure
-- Process data and calculate anomaly scores
+- Validate runtime improvement on QEMU with the thread pool
+- Row-group streaming for parquet (replace `ReadTable` to cut peak RAM from ~1333 MB)
 
 ## Quick Start (Docker - Recommended)
 

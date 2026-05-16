@@ -17,6 +17,9 @@ namespace htm_swat {
 
 using namespace htm;
 
+// Defined in htm_pyramid.cpp — kept out of the header as an implementation detail.
+class ThreadPool;
+
 class HTMPyramid {
 public:
     // Constructor matching Python ModelPyramid
@@ -92,6 +95,9 @@ private:
     std::vector<float> scores_;
     std::vector<int> labels_;
     std::string head_node_;  // L3_1
+
+    // Persistent thread pool — created once in build(), reused every runLayer() call.
+    std::unique_ptr<ThreadPool> thread_pool_;
 };
 
 } // namespace htm_swat
