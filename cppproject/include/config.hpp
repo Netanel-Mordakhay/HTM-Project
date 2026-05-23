@@ -12,7 +12,7 @@ namespace htm_swat {
 struct Config {
     // General settings
     int seed = 69;
-    int learn_period = 1000;
+    int learn_period = 100;
     std::string htm_merge_mode = "u";
     
     // Encoder settings

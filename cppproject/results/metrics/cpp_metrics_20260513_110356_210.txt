@@ -1,0 +1,27 @@
+Best | F1=0.0000 precision=0.0000 recall=0.0000 accuracy=0.0000 threshold=0.0000 thresholds_tested=101
+Avg  | F1=0.0000 precision=0.0000 recall=0.0000 accuracy=0.0000 thresholds_tested=101
+Runtime : 210.02 sec
+Avg CPU : 172.9%
+Peak RAM: 1324.7 MB
+
+RAM samples (10s intervals):
+  t=10.0s  1268.4 MB
+  t=20.0s  1270.9 MB
+  t=30.0s  1280.7 MB
+  t=40.0s  1283.7 MB
+  t=50.0s  1284.6 MB
+  t=60.0s  1285.7 MB
+  t=70.0s  1290.4 MB
+  t=80.0s  1294.1 MB
+  t=90.0s  1295.1 MB
+  t=100.0s  1296.6 MB
+  t=110.0s  1300.3 MB
+  t=120.0s  1305.5 MB
+  t=130.0s  1311.5 MB
+  t=140.0s  1314.5 MB
+  t=150.0s  1314.9 MB
+  t=160.0s  1315.5 MB
+  t=170.0s  1316.7 MB
+  t=180.0s  1317.6 MB
+  t=190.0s  1320.5 MB
+  t=200.0s  1321.9 MB

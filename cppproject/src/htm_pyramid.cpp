@@ -247,15 +247,42 @@ void HTMPyramid::run() {
     scores_.reserve(total);
     labels_.clear();
     labels_.reserve(total);
-
+ 
     size_t row_idx = 0;
+    std::map<std::string, double> saved_row_t5;
     while (row_streamer_->hasNext()) {
         auto row = row_streamer_->nextRow();
+ 
+        // Window logic: save the 5th row of each 10-row window, skip all others
+        // except the 10th, which gets pair-encoded with the saved 5th.
+        if (row_idx % 10 == 4) {
+            saved_row_t5 = row;
+            row_idx++;
+            continue;
+        }
+        if (row_idx % 10 != 9) {
+            row_idx++;
+            continue;
+        }
+ 
         labels_.push_back(row_streamer_->lastLabel());
-        
-        // Encode row using DataStreamer (get merged SDRs for L0)
-        auto encoded_row = data_streamer_->encodeRowMerged(row);
-
+ 
+        // Pair-encode: union of 5th and 10th timestep per feature group
+        std::map<std::string, SDR> encoded_row;
+        if (!saved_row_t5.empty()) {
+            for (const auto& [group_name, feature_list] : feature_plan_) {
+                std::map<std::string, double> sub_t5, sub_t10;
+                for (const auto& f : feature_list) {
+                    if (saved_row_t5.count(f)) sub_t5[f] = saved_row_t5.at(f);
+                    if (row.count(f))          sub_t10[f] = row.at(f);
+                }
+                encoded_row[group_name] = data_streamer_->encodePair(sub_t5, sub_t10);
+            }
+            saved_row_t5.clear();
+        } else {
+            encoded_row = data_streamer_->encodeRowMerged(row);
+        }
+ 
         if (row_idx == 0) {
             std::cout << "  Debug encoded inputs (row 0):" << std::endl;
             for (const auto& [name, sdr] : encoded_row) {
@@ -271,7 +298,7 @@ void HTMPyramid::run() {
         
         // layer_outputs holds outputs of previous layer; start with encoder outputs
         std::map<std::string, SDR> layer_outputs = encoded_row;
-
+ 
         // Iterate layers in order (including L0) and run modules sequentially
         for (const auto& [layer_idx, nodes] : layer_dict_) {
             if (layer_idx == 0) {
@@ -346,9 +373,10 @@ void HTMPyramid::run() {
         }
         row_idx++;
     }
-
+ 
     std::cout << "Done running model" << std::endl;
 }
+ 
 
 std::map<std::string, SDR> HTMPyramid::runLayer(const std::map<std::string, SDR>& inputs, int layer_idx) {
     std::map<std::string, SDR> results;

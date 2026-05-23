@@ -41,7 +41,10 @@ public:
     
     // Encode a single feature value (categorical - uses integer)
     SDR encodeFeature(const std::string& feature_name, UInt value) const;
-    
+
+    SDR encodePair(const std::map<std::string, double>& row_t5,
+               const std::map<std::string, double>& row_t10) const;
+    //
     // Encode a full row of data (map of feature_name -> value)
     // Returns individual feature SDRs
     std::map<std::string, SDR> encodeRow(const std::map<std::string, double>& row_data) const;
