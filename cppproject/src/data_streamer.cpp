@@ -114,11 +114,11 @@ SDR DataStreamer::encodePair(const std::map<std::string, double>& row_t5,
                              const std::map<std::string, double>& row_t10) const {
     std::vector<SDR> sdrs;
 
-    // for (const auto& [feature_name, value] : row_t5) {
-    //     if (hasEncoder(feature_name)) {
-    //         sdrs.push_back(encodeFeature(feature_name, value));
-    //     }
-    // }
+    for (const auto& [feature_name, value] : row_t5) {
+        if (hasEncoder(feature_name)) {
+            sdrs.push_back(encodeFeature(feature_name, value));
+        }    
+    }
     for (const auto& [feature_name, value] : row_t10) {
         if (hasEncoder(feature_name)) {
             sdrs.push_back(encodeFeature(feature_name, value));
