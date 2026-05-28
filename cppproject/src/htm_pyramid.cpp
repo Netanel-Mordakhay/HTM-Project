@@ -249,34 +249,43 @@ void HTMPyramid::run() {
     labels_.reserve(total);
  
     size_t row_idx = 0;
-    std::map<std::string, double> saved_row;
-    int saved_label = 0;
+    std::map<std::string, double> saved_row_t5;
+    std::vector<int> window_labels; // collect per-row labels across the full 10-row window
     while (row_streamer_->hasNext()) {
         auto row = row_streamer_->nextRow();
+        int current_label = row_streamer_->lastLabel();
 
-        // Save odd rows, process even rows as a pair with the previous
-        if (row_idx % 2 == 0) {
-            saved_row = row;
-            saved_label = row_streamer_->lastLabel(); 
+        // Accumulate label for every raw row so we can push all 10 at window end
+        window_labels.push_back(current_label);
+
+        // Window logic: save the 5th row of each 10-row window, skip all others
+        // except the 10th, which gets pair-encoded with the saved 5th.
+        if (row_idx % 10 == 4) {
+            saved_row_t5 = row;
+            row_idx++;
+            continue;
+        }
+        if (row_idx % 10 != 9) {
             row_idx++;
             continue;
         }
 
-        // row_idx % 2 == 1: pair this row with the saved previous row
-        labels_.push_back(saved_label);
-        labels_.push_back(row_streamer_->lastLabel());
+        // Push one label per raw row in the window (preserves 1-to-1 with scores)
+        for (int lbl : window_labels) labels_.push_back(lbl);
+        window_labels.clear();
 
+        // Pair-encode: union of 5th and 10th timestep per feature group
         std::map<std::string, SDR> encoded_row;
-        if (!saved_row.empty()) {
+        if (!saved_row_t5.empty()) {
             for (const auto& [group_name, feature_list] : feature_plan_) {
-                std::map<std::string, double> sub_t0, sub_t1;
+                std::map<std::string, double> sub_t5, sub_t10;
                 for (const auto& f : feature_list) {
-                    if (saved_row.count(f)) sub_t0[f] = saved_row.at(f);
-                    if (row.count(f))       sub_t1[f] = row.at(f);
+                    if (saved_row_t5.count(f)) sub_t5[f] = saved_row_t5.at(f);
+                    if (row.count(f))          sub_t10[f] = row.at(f);
                 }
-                encoded_row[group_name] = data_streamer_->encodePair(sub_t0, sub_t1);
+                encoded_row[group_name] = data_streamer_->encodePair(sub_t5, sub_t10);
             }
-            saved_row.clear();
+            saved_row_t5.clear();
         } else {
             encoded_row = data_streamer_->encodeRowMerged(row);
         }
@@ -345,12 +354,11 @@ void HTMPyramid::run() {
             }
         }
         
-        // Get final score from head — push twice, once for each row in the pair
+        // Get final score from head — replicate across all 10 rows in the window
         float score = (modules_.find(head_node_) != modules_.end())
             ? modules_.at(head_node_)->getAnomalyScore()
             : 0.0f;
-        scores_.push_back(score);
-        scores_.push_back(score);
+        for (int i = 0; i < 10; i++) scores_.push_back(score);
         
         if ((row_idx + 1) % 1000 == 0) {
             std::cout << "  Processed " << (row_idx + 1) << " rows..." << std::endl;
