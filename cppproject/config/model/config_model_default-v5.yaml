@@ -1,0 +1,63 @@
+general:
+  feature_merge_mode: u # u - union \ c-concat
+  htm_merge_mode: u
+  use_predictive: no
+  max_pool: [1, 1, 1, 2]
+  smooth_box_sizes: [3, 35, 2]
+  threshold_delta: 0.05
+  thresholds: [0.1, 0.95, 0.01]
+  grace_window: 5
+  seed: 69
+  learn_period: 10000 # From what index to start the metrics (sliding-window: 1/10th of 10k scores = proportional to 10k/100k on other branches)
+  #learn_period: 30000
+  data_min: 486800 # For the sdr min and max are erased ---->
+  data_max: 946000
+  #data_min: 0
+  #data_max: 946719
+  data_res: 1
+  #data_res: 1
+
+encoders:
+  n: 2304
+  #n: 2048
+  w: 0.035
+  #w: 0.02
+
+models:
+  sp:
+    # Light tuning (reverted stricter pass — restored ~0.30 F1 regime on your slice)
+    potentialPct: 0.24
+    columnDimensions: 1664 # [2048]
+    potentialRadius: 1.0 #0.4
+    # localAreaDensity: 0.019
+    localAreaDensity: 0.019 # TESTING
+    globalInhibition: yes
+    # boostStrength: [2, 2.6, 1, 3]
+    boostStrength: [1.2, 1.2, 1.2, 1.2] # TESTING
+    stimulusThreshold: [32, 24, 20, 12]
+    synPermConnected: 0.5
+    synPermActiveInc: [3.493e-3, 1.275e-4, 6.368e-3, 3.186e-2]
+    synPermInactiveDec: [5.225e-5, 1.257e-3, 8.518e-5, 7.88e-6]
+    wrapAround: yes
+    minPctOverlapDutyCycle: 0.001
+    dutyCyclePeriod: [2000, 2450, 2000, 2300]
+
+  tm:
+    #cellsPerColumn: 4 # 2
+    cellsPerColumn: 16 # TESTING
+    # Slightly stricter dendrites → fewer noisy predictions → often helps precision/F1 tradeoff
+    #minThreshold: 18
+    minThreshold: 16 # TESTING
+    # activationThreshold: [32, 48, 43, 48]
+    activationThreshold: [26, 30, 28, 32] # TESTING
+    initialPerm: 0.21
+    maxSegmentsPerCell: [128, 64, 160, 112]
+    maxSynapsesPerSegment: [480, 224, 224, 224]
+    # newSynapseCount: [56, 56, 32, 32]
+    newSynapseCount: [32, 32, 32, 32] # TESTING
+    permanenceConnected: 0.6
+    permanenceInc: [0.075, 0.075, 0.075, 0.175]
+    # permanenceDec: [7.26e-4, 4.2e-4, 0.1527, 7.003e-5]
+    permanenceDec: [7.26e-4, 4.2e-4, 7.0e-4, 7.003e-5] # TESTING
+    # predictedSegmentDecrement: [0.003, 0.003, 0.003, 0.007] # (roughly 2 * permInc * sparsity)
+    predictedSegmentDecrement: [0.005, 0.005, 0.005, 0.005]
