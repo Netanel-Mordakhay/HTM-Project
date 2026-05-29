@@ -134,6 +134,20 @@ SDR DataStreamer::encodePair(const std::map<std::string, double>& row_t5,
     return mergeSDRs(sdrs, feature_merge_mode_);
 }
 
+SDR DataStreamer::encodeWindow(const std::vector<std::map<std::string, double>>& rows) const {
+    std::vector<SDR> sdrs;
+    for (const auto& row : rows) {
+        for (const auto& [feature_name, value] : row) {
+            if (hasEncoder(feature_name)) {
+                sdrs.push_back(encodeFeature(feature_name, value));
+            }
+        }
+    }
+    if (sdrs.empty()) return SDR({encoder_size_});
+    if (sdrs.size() == 1) return sdrs[0];
+    return mergeSDRs(sdrs, feature_merge_mode_);
+}
+
 std::vector<UInt> DataStreamer::getEncodingDims(const std::string& group_name) const {
     if (!has_merge_plan_ || merge_plan_.find(group_name) == merge_plan_.end()) {
         return {encoder_size_};

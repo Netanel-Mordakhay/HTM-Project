@@ -44,6 +44,8 @@ public:
 
     SDR encodePair(const std::map<std::string, double>& row_t5,
                const std::map<std::string, double>& row_t10) const;
+
+    SDR encodeWindow(const std::vector<std::map<std::string, double>>& rows) const;
     //
     // Encode a full row of data (map of feature_name -> value)
     // Returns individual feature SDRs

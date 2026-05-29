@@ -8,13 +8,13 @@ general:
   thresholds: [0.1, 0.95, 0.01]
   grace_window: 5
   seed: 69
-  learn_period: 10000 # From what index to start the metrics
+  learn_period: 10000 # From what index to start the metrics (sliding-window: 1/10th of 10k scores = proportional to 10k/100k on other branches)
   #learn_period: 30000
-  data_min: 446000 # For the sdr min and max are erased ---->
-  data_max: 946000
+  data_min: 486800 # For the sdr min and max are erased ---->
+  data_max: 946719
   #data_min: 0
   #data_max: 946719
-  data_res: 5
+  data_res: 1
   #data_res: 1
 
 encoders:
