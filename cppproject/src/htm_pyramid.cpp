@@ -248,7 +248,7 @@ void HTMPyramid::run() {
     labels_.clear();
     labels_.reserve(total);
  
-    constexpr int WINDOW_SIZE = 4;
+    constexpr int WINDOW_SIZE = 16;
     size_t row_idx = 0;
     std::vector<std::map<std::string, double>> window_rows;
     std::vector<int> window_labels;
