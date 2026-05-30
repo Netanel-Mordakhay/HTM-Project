@@ -11,6 +11,9 @@
 #include <sstream>
 #include <filesystem>
 #include <algorithm>
+#include <thread>
+#include <atomic>
+#include <sys/resource.h>
 #include "config.hpp"
 #include "data_streamer.hpp"
 #include "htm_pyramid.hpp"
@@ -24,7 +27,60 @@ using namespace htm;
 using namespace std;
 using namespace htm_swat;
 
+static double cpuTimeSec() {
+    struct rusage usage;
+    getrusage(RUSAGE_SELF, &usage);
+    return (usage.ru_utime.tv_sec + usage.ru_utime.tv_usec / 1e6)
+         + (usage.ru_stime.tv_sec + usage.ru_stime.tv_usec / 1e6);
+}
+
+static double currentRamMB() {
+    std::ifstream status("/proc/self/status");
+    std::string line;
+    while (std::getline(status, line)) {
+        if (line.rfind("VmRSS:", 0) == 0) {
+            std::istringstream ss(line.substr(6));
+            long kb = 0; ss >> kb;
+            return kb / 1024.0;
+        }
+    }
+    return -1.0;
+}
+
+static double peakRamMB() {
+    std::ifstream status("/proc/self/status");
+    std::string line;
+    while (std::getline(status, line)) {
+        if (line.rfind("VmHWM:", 0) == 0) {
+            std::istringstream ss(line.substr(6));
+            long kb = 0; ss >> kb;
+            return kb / 1024.0;
+        }
+    }
+    return -1.0;
+}
+
 int main(int argc, char* argv[]) {
+    auto run_start = std::chrono::steady_clock::now();
+    double cpu_start = cpuTimeSec();
+
+    std::vector<std::pair<double, double>> ram_samples;
+    std::atomic<bool> sampling_active{true};
+    std::thread sampling_thread([&]() {
+        while (sampling_active.load()) {
+            std::this_thread::sleep_for(std::chrono::seconds(10));
+            if (!sampling_active.load()) break;
+            double elapsed = std::chrono::duration<double>(
+                std::chrono::steady_clock::now() - run_start).count();
+            double ram = currentRamMB();
+            if (ram >= 0) ram_samples.push_back({elapsed, ram});
+        }
+    });
+    auto stop_sampler = [&]() {
+        sampling_active = false;
+        if (sampling_thread.joinable()) sampling_thread.join();
+    };
+
     std::cout << "========================================" << std::endl;
     std::cout << "HTM SWAT Implementation" << std::endl;
     std::cout << "========================================" << std::endl;
@@ -333,9 +389,27 @@ int main(int argc, char* argv[]) {
                        << " accuracy=" << grid_result.average_metrics.accuracy
                        << " thresholds_tested=" << grid_result.thresholds_tested << "\n";
         
+        // Append runtime / CPU / RAM stats
+        stop_sampler();
+        double total_sec = std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - run_start).count();
+        double cpu_sec   = cpuTimeSec() - cpu_start;
+        double avg_cpu   = (total_sec > 0) ? (cpu_sec / total_sec * 100.0) : 0.0;
+        double peak_ram  = peakRamMB();
+
+        metrics_stream << "Runtime : " << std::setprecision(2) << total_sec << " sec\n";
+        metrics_stream << "Avg CPU : " << std::setprecision(1) << avg_cpu   << "%\n";
+        metrics_stream << "Peak RAM: " << std::setprecision(1) << peak_ram  << " MB\n";
+        if (!ram_samples.empty()) {
+            metrics_stream << "\nRAM samples (10s intervals):\n";
+            for (const auto& [t, r] : ram_samples)
+                metrics_stream << "  t=" << std::setprecision(1) << t << "s  "
+                               << std::setprecision(1) << r << " MB\n";
+        }
+
         std::string metrics_output = metrics_stream.str();
         std::cout << metrics_output;
-        
+
         // 9. Save results
         std::cout << "\n[Step 9] Saving results..." << std::endl;
         
