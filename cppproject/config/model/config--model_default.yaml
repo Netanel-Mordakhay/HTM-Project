@@ -8,7 +8,7 @@ general:
   thresholds: [0.1, 0.95, 0.01]
   grace_window: 3
   seed: 69
-  learn_period: 1000
+  learn_period: 500
   data_min: 540_000
   data_max: 700_000
   data_res: 5
