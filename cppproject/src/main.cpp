@@ -44,7 +44,7 @@ int main(int argc, char* argv[]) {
         
         std::cout << "  ✓ Loaded data config with " << features_config.size() << " features" << std::endl;
         
-        string model_config_path = "config/model/config_model_default.yaml";
+        string model_config_path = "config/model/config_model_default-v5.yaml";
         auto model_config = loadModelConfig(model_config_path);
         
         if (model_config.empty()) {
