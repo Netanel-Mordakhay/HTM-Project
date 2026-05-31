@@ -126,7 +126,7 @@ int main(int argc, char* argv[]) {
         
         std::cout << "  ✓ Loaded data config with " << features_config.size() << " features" << std::endl;
         
-        string model_config_path = "config/model/config_model_default-v3.yaml";
+        string model_config_path = "config/model/config_model_default-v5.yaml";
         auto model_config = loadModelConfig(model_config_path);
         
         if (model_config.empty()) {
@@ -136,40 +136,25 @@ int main(int argc, char* argv[]) {
         
         std::cout << "  ✓ Loaded model config" << std::endl;
         
-        // Extract general config
-        UInt seed = 69;
-        int learn_period = 5000;
-        int min_data = 446000;
-        int max_data = 946000;
-        int res_data = 5;
-        string feature_merge_mode = "u";
-        string htm_merge_mode = "u";
-        std::vector<int> max_pool = {1, 1, 1, 2};
-        
-        if (model_config.count("general")) {
-            const auto& general = model_config.at("general");
-            if (general.count("seed")) {
-                seed = static_cast<UInt>(std::stoi(general.at("seed")));
-            }
-            if (general.count("learn_period")) {
-                learn_period = std::stoi(general.at("learn_period"));
-            }
-            if (general.count("data_min")) {
-                min_data = std::stoi(general.at("data_min"));
-            }
-            if (general.count("data_max")) {
-                max_data = std::stoi(general.at("data_max"));
-            }
-            if (general.count("data_res")) {
-                res_data = std::stoi(general.at("data_res"));
-            }
-            if (general.count("feature_merge_mode")) {
-                feature_merge_mode = general.at("feature_merge_mode");
-            }
-            if (general.count("htm_merge_mode")) {
-                htm_merge_mode = general.at("htm_merge_mode");
-            }
-        }
+        // Extract general config — all values must be present in the config file
+        if (!model_config.count("general"))
+            throw std::runtime_error("Missing 'general' section in model config");
+        const auto& general = model_config.at("general");
+
+        auto require = [&](const std::string& key) -> const std::string& {
+            if (!general.count(key))
+                throw std::runtime_error("Missing required config key: general." + key);
+            return general.at(key);
+        };
+
+        UInt seed              = static_cast<UInt>(std::stoi(require("seed")));
+        int  learn_period      = std::stoi(require("learn_period"));
+        int  min_data          = std::stoi(require("data_min"));
+        int  max_data          = std::stoi(require("data_max"));
+        int  res_data          = std::stoi(require("data_res"));
+        string feature_merge_mode = require("feature_merge_mode");
+        string htm_merge_mode     = require("htm_merge_mode");
+        std::vector<int> max_pool = {1, 1, 1, 2}; // matches config max_pool; list parsing not implemented
         
         // 2. Load data
         std::cout << "\n[Step 2] Loading data..." << std::endl;
