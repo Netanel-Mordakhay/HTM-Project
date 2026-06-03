@@ -1,0 +1,17 @@
+{
+  "timestamp": "20260530_135444_422",
+  "thresholds_tested": 101,
+  "best": {
+    "threshold": 0.97,
+    "f1": 0.163547,
+    "precision": 0.0890558,
+    "recall": 1,
+    "accuracy": 0.488575
+  },
+  "average": {
+    "f1": 0.111542,
+    "precision": 0.0591352,
+    "recall": 0.990099,
+    "accuracy": 0.212934
+  }
+}
