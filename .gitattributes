@@ -6,22 +6,18 @@
 Dockerfile text eol=lf
 docker-compose.yml text eol=lf
 .dockerignore text eol=lf
-
 # Force LF for configuration files
 *.yaml text eol=lf
 *.yml text eol=lf
-
 # Force LF for source code
 *.cpp text eol=lf
 *.hpp text eol=lf
 *.h text eol=lf
 *.c text eol=lf
-
 # Force LF for build files
 CMakeLists.txt text eol=lf
 Makefile text eol=lf
-
 # Let Git handle these automatically
 *.md text
 *.txt text
-
+cppproject/data/swat_dataset.csv filter=lfs diff=lfs merge=lfs -text
