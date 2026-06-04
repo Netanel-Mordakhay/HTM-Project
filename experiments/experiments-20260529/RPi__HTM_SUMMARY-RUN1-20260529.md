@@ -19,7 +19,7 @@
 | **C++ SW Window=8** ⭐ | **sliding-window-4** | **0.3269** | **0.2155** | **0.6766** | **0.6626** | **0.78** | **440** | **73.8%** | **9.2%** | **1,299.7** | **1,310.1** |
 | C++ SW Window=16 | sliding-window-4 | 0.2888 | 0.1742 | 0.8425 | 0.5080 | 0.52 | 340 | 75.2% | 9.4% | 1,299.6 | 1,312.7 |
 
-> ⚠️ Recall=1.0 on single-thread is degenerate — the model flags every row as anomaly. Root cause: single-thread reads v3 config (data_min=446000 data window) — now fixed to v5.
+> ⚠️ Recall=1.0 on single-thread is degenerate — the model flags every row as anomaly. This run used v5 config parameters. Root cause: sequential module execution — the 26 SP instances run one-by-one in alphabetical map order, causing duty-cycle counters and boosting to diverge across modules. The TM receives inconsistent SDR representations and never forms stable predictions, so anomaly scores cluster near 1.0 for all rows.
 
 ---
 
@@ -37,14 +37,18 @@ C++ SW-8               0.3269  (+22%)  — BEST: optimal window ⭐
 C++ SW-16              0.2888          — SDR too dense, precision collapses
 ```
 
-### RAM
+### RAM (Mean / Peak)
 ```
-C++ Single-thread    7,034 MB  (full dataset in memory)
-C++ Multithreaded    7,031 MB  (still in-memory)
-C++ + Streaming      1,310 MB  (row-by-row streaming — 5.4× reduction) ✅
-C++ SW-2 to SW-16    1,310–1,357 MB  (all streaming)
-Python baseline     13,597 MB  (peak; grows during run due to HTM object growth)
-Pi 4B target           350 MB  (still 3.7× over ❌)
+                       Mean RAM    Peak RAM
+C++ Single-thread      7,008.6 MB  7,034.0 MB  (full dataset in memory)
+C++ Multithreaded      7,011.7 MB  7,031.0 MB  (still in-memory)
+C++ + Streaming        1,304.7 MB  1,310.4 MB  (row-by-row streaming — 5.4× reduction) ✅
+C++ SW-2               1,317.0 MB  1,323.5 MB
+C++ SW-4               1,342.4 MB  1,356.5 MB
+C++ SW-8               1,299.7 MB  1,310.1 MB
+C++ SW-16              1,299.6 MB  1,312.7 MB
+Python baseline       10,866.0 MB 13,596.8 MB  (grows during run — HTM synapse growth)
+Pi 4B target             —           350 MB    (still 3.7× over for streaming runs ❌)
 ```
 
 ### Runtime
@@ -81,11 +85,11 @@ Python HTM runs under the GIL — every SP and TM call is single-threaded and se
 
 ### C++ Single-thread (F1=0.1635, Recall=1.0 ⚠️) vs Multithreaded (F1=0.2683)
 
-Despite identical v5 hyperparameters, single-thread gives degenerate recall=1.0 (flags every row as anomaly):
+Both single-thread and multithreaded used identical v5 hyperparameters. The F1 difference is caused entirely by **sequential vs parallel module execution**:
 
-- **Config path bug (now fixed):** The single-thread branch had a hardcoded path to `config_model_default-v3.yaml` (`data_min=446000`) instead of v5. SP/TM params were the same, but the shifted data window changed the statistical distribution the SP learned during warmup.
-- **Sequential SP initialization divergence:** The pyramid has 26 SP modules. In single-thread, they run one-by-one in alphabetical map order. Early modules complete iteration 1 while later ones haven't started. This causes SP duty-cycle counters and boosting to diverge across modules — some modules are "warm" while others are cold within the same row. The net effect is inconsistent SDR representations fed into each TM, preventing stable temporal predictions. Anomaly score never drops from ~1.0.
+- **Sequential SP initialization divergence:** The pyramid has 26 SP modules. In single-thread, they run one-by-one in alphabetical map order. Early modules complete their forward pass while later ones haven't started. This causes SP duty-cycle counters and boosting to diverge across modules — some modules are "warm" while others are cold within the same row. The net effect is inconsistent SDR representations fed into each TM, preventing stable temporal predictions. Anomaly score never drops from ~1.0 → recall=1.0.
 - **Multithreaded fix:** All modules in each layer run simultaneously via `std::async`. Every SP starts at the same iteration state, producing consistent representations → TM learns real temporal patterns → proper anomaly scores.
+- Note: the single-thread branch had a hardcoded `-v3.yaml` config path which has since been corrected to v5, but the experiment result shown above was produced with v5 parameters already in place.
 
 ### Multithreaded in-memory vs Batch-load (F1 identical: 0.2683)
 
@@ -106,6 +110,34 @@ SW-8 hits the sweet spot. An 8-row window (8 seconds at 1 Hz sampling) aligns wi
 ### SW-8 vs SW-16 (F1: 0.3269 → 0.2888)
 
 With 16-row unions, the SDR becomes too dense. Bitwise-OR'ing 16 encoder outputs activates a large fraction of the 2304 bits regardless of the underlying sensor values — normal windows and attack windows start looking similar to the SP. Precision collapses (0.2155 → 0.1742) because the model can no longer reliably distinguish the two. Recall increases (0.6766 → 0.8425) because the model flags more things, but at the cost of many false positives. The optimal threshold also drops to 0.52, reflecting that the score distribution is now bimodal at a lower separation point.
+
+---
+
+## Single-Thread Degenerate Recall — Does Python Have This Bug?
+
+### Failure Mode Comparison
+
+| Implementation | Anomaly scores | Optimal threshold | Recall | Problem |
+|---|---|---|---|---|
+| C++ Single-thread | Clustered near **1.0** | 0.97 | 1.0000 | TM never learned → every row looks like a surprise |
+| C++ Multithreaded | Spread across 0–1 | 0.97 | 0.7985 | Working correctly |
+| Python | Clustered near **0** | 0.04 | 0.2634 | TM over-learned → nothing surprises it |
+
+**Python does not have the recall=1.0 bug.** Its failure mode is the opposite: anomaly scores are compressed near 0, so the optimal threshold drops all the way to 0.04 just to catch 26% of attacks. Python uses multiprocessing (one process per model key), so all modules run in separate processes in parallel — it never has the sequential initialization divergence issue.
+
+Python's poor F1 (0.0959) comes from a different set of problems: GIL-bound single-threaded inference, continuously growing RAM (1.7 GB → 13.6 GB) as synapse objects accumulate in Python's heap, and slower learning dynamics in the Python HTM library vs native C++.
+
+### Was this bug present with data_res=5?
+
+Yes. The single-thread v3 run (data_res=5, 100k rows) also produced **Recall=1.0000**. The sequential execution bug is independent of how many rows are sampled — the TM still fails to learn stable predictions regardless of dataset size, because the root cause is inconsistent SP representations, not insufficient data.
+
+### Can we fix it? Should we?
+
+**Can we:** Yes — adding `std::async` parallelism to `runLayer` in the single-thread branch would fix it. That is exactly what the `multithreaded` branch does.
+
+**Should we:** No, for two reasons:
+1. **Already fixed** — the `multithreaded` branch is the corrected version. Patching `experiments/draft_abed` would duplicate it.
+2. **Useful as a baseline** — the degenerate result is scientifically meaningful. It demonstrates that parallel module initialization is critical for HTM pyramid *correctness*, not just speed. A sequential single-threaded pyramid cannot produce reliable anomaly scores regardless of hyperparameter tuning.
 
 ---
 

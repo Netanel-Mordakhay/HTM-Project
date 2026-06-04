@@ -93,3 +93,4 @@ cppproject/build/
 **/docs/_build/
 **/docs/.doctrees/
 
+cppproject/data/swat_dataset.csv
