@@ -1,0 +1,2 @@
+Best | F1=0.1635 precision=0.0891 recall=1.0000 accuracy=0.4886 threshold=0.9700 thresholds_tested=101
+Avg  | F1=0.1115 precision=0.0591 recall=0.9901 accuracy=0.2129 thresholds_tested=101
